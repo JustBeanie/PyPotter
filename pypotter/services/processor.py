@@ -57,13 +57,19 @@ class SpellProcessor:
             decoded = cv2.imdecode(encoded, cv2.IMREAD_GRAYSCALE)
             if decoded is None:
                 raise ProcessingError("The uploaded image could not be decoded.")
-            knn = cv2.ml.KNearest_create()  # type: ignore[attr-defined]
-            knn.train(np.asarray(samples), cv2.ml.ROW_SAMPLE, np.asarray(labels))
-            _, result, _, distances = knn.findNearest(
-                cv2.resize(decoded, (50, 50)).reshape(1, -1).astype(np.float32), k=5
-            )
-            index = int(result[0][0])
-            confidence = 1.0 / (1.0 + float(distances[0][0]))
+            sample_matrix = np.asarray(samples, dtype=np.float32)
+            label_array = np.asarray(labels, dtype=np.intp)
+            query = cv2.resize(decoded, (50, 50)).reshape(-1).astype(np.float32)
+
+            # OpenCV 5's headless wheel no longer includes cv2.ml. Keep the
+            # original 5-neighbor vote using NumPy so the lightweight wheel
+            # remains sufficient for image recognition.
+            squared_distances = np.sum((sample_matrix - query) ** 2, axis=1)
+            neighbor_count = min(5, len(squared_distances))
+            neighbors = np.argpartition(squared_distances, neighbor_count - 1)[:neighbor_count]
+            votes = np.bincount(label_array[neighbors], minlength=len(label_names))
+            index = int(np.argmax(votes))
+            confidence = 1.0 / (1.0 + float(squared_distances[neighbors].min()))
             return Recognition(label_names[index], confidence, "image", datetime.now(UTC))
         except ProcessingError:
             raise
