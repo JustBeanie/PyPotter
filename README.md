@@ -36,41 +36,48 @@ docker compose up --build
 
 The production image serves the compiled frontend from FastAPI, runs as a non-root user, exposes port 8000, and stores SQLite at `/data/pypotter.db`. Mount or retain the `pypotter-data` volume to preserve history.
 
-## MQTT through Home Assistant
+## MQTT and Home Assistant discovery
 
-PyPotter does not connect to MQTT directly and `docker-compose.yml` does not start an MQTT broker. The integration path is:
+PyPotter connects to an MQTT broker directly and advertises itself to Home Assistant using MQTT discovery. The integration path is:
 
 ```text
-PyPotter -> Home Assistant REST API -> Home Assistant automation -> MQTT broker -> MQTT device
+PyPotter -> MQTT broker -> Home Assistant MQTT discovery -> Home Assistant automations/devices
 ```
 
-When a spell is recognized, PyPotter calls Home Assistant's `automation.trigger` service for `automation.wand_<spell>`. For example, recognizing `incendio` calls `automation.wand_incendio`. The Home Assistant automation then decides what to do; to publish to MQTT, give that automation an action like:
+When MQTT is enabled, PyPotter publishes a retained discovery payload to `homeassistant/device/pypotter/config` and publishes recognition events to `pypotter/events`. Home Assistant discovers one PyPotter device with a `Last spell` sensor, a confidence sensor, and one device trigger for every trained spell. A recognition is published as JSON:
 
-```yaml
-actions:
-  - action: mqtt.publish
-    data:
-      topic: home/pypotter/incendio
-      payload: incendio
+```json
+{"spell":"incendio","confidence":1.0,"source":"spell","created_at":"2026-01-01T00:00:00+00:00"}
 ```
 
-Configure the MQTT integration and broker in Home Assistant first, then create or rename the automation entity so its ID matches the spell (`automation.wand_incendio`, `automation.wand_lumos`, and so on). Home Assistant's [MQTT integration](https://www.home-assistant.io/integrations/mqtt) and [`mqtt.publish` action](https://www.home-assistant.io/actions/mqtt.publish/) handle the broker connection and message delivery.
+In Home Assistant, open an automation, choose the discovered PyPotter device as the trigger, and select the spell trigger (for example, `spell_cast / incendio`). The automation can then control any Home Assistant entity or use the [`mqtt.publish` action](https://www.home-assistant.io/actions/mqtt.publish/) to send a command to another MQTT device. No Home Assistant REST token is needed for this MQTT path.
 
-Enable the PyPotter-to-Home-Assistant leg in `.env`:
+Enable the MQTT connection in `.env`:
 
 ```dotenv
-PYPOTTER_ENABLE_HOME_ASSISTANT=true
-PYPOTTER_HOME_ASSISTANT_URL=http://homeassistant:8123
-PYPOTTER_HOME_ASSISTANT_TOKEN=your-long-lived-access-token
+PYPOTTER_ENABLE_MQTT=true
+PYPOTTER_MQTT_HOST=mqtt
+PYPOTTER_MQTT_PORT=1883
+PYPOTTER_MQTT_USERNAME=
+PYPOTTER_MQTT_PASSWORD=
+PYPOTTER_MQTT_DISCOVERY_PREFIX=homeassistant
+PYPOTTER_MQTT_TOPIC_PREFIX=pypotter
+PYPOTTER_MQTT_CLIENT_ID=pypotter
 ```
 
-The URL must be reachable from the `pypotter` container. Use the Home Assistant service name when both services share a Compose network, or a reachable host name/IP when Home Assistant runs separately. Do not use `localhost` for a Home Assistant process running outside the PyPotter container.
+`docker-compose.yml` includes an Eclipse Mosquitto broker for local development. The default broker is intentionally anonymous and bound to `127.0.0.1:1883`; do not expose this configuration to an untrusted network. Home Assistant must connect to this same broker—for example, use the Docker host address when Home Assistant runs outside this Compose project, or use the `mqtt` service name when it shares the Compose network. The broker persists its data in the `mqtt-data` volume.
 
-The checked-in Compose file starts only PyPotter; it intentionally does not provision Home Assistant or a broker. After configuring the automation, verify the full path by submitting a recognition to PyPotter and subscribing to the configured topic with an MQTT client.
+To verify the event stream independently:
+
+```bash
+mosquitto_sub -h 127.0.0.1 -p 1883 -t 'pypotter/#' -v
+```
+
+Then submit a recognition through the web app or API. Home Assistant's [MQTT integration](https://www.home-assistant.io/integrations/mqtt) must be configured with the same broker and discovery prefix. PyPotter also listens for the MQTT birth message on `<discovery_prefix>/status` and republishes discovery when Home Assistant restarts.
 
 ## Configuration and migration
 
-Copy `.env.example` to `.env`. All settings use the `PYPOTTER_` prefix. Home Assistant calls are disabled by default; set `PYPOTTER_ENABLE_HOME_ASSISTANT=true`, the URL, and a long-lived token to enable them.
+Copy `.env.example` to `.env`. All settings use the `PYPOTTER_` prefix. Home Assistant REST calls and MQTT publishing are disabled by default for local Python runs; the Compose setup enables MQTT and points it at its `mqtt` service. See [MQTT and Home Assistant discovery](#mqtt-and-home-assistant-discovery) for the broker settings.
 
 The legacy repository contains a `Training/` image corpus and no database format. `pypotter migrate` creates the SQLite schema without deleting or rewriting those files. Back up any existing database before a migration; `pypotter.migration.backup_database` creates a timestamped copy.
 
@@ -89,7 +96,7 @@ GitHub Actions checks Python 3.12–3.14, frontend typechecking/build/tests, Ope
 
 ## Architecture and limitations
 
-`pypotter/domain` contains stable spell concepts, `services` contains processing, `persistence` contains the SQLAlchemy repository boundary, `integrations` contains Home Assistant, and `api` contains FastAPI adapters. The initial web release is intentionally local and unauthenticated. PostgreSQL, camera streaming inside the browser, and production authentication remain deferred. The original OpenCV pipeline still requires a camera-capable host and GUI support, so it is not silently enabled in the container.
+`pypotter/domain` contains stable spell concepts, `services` contains processing, `persistence` contains the SQLAlchemy repository boundary, `integrations` contains Home Assistant and MQTT, and `api` contains FastAPI adapters. The initial web release is intentionally local and unauthenticated. PostgreSQL, camera streaming inside the browser, and production authentication remain deferred. The original OpenCV pipeline still requires a camera-capable host and GUI support, so it is not silently enabled in the container.
 
 ## Acknowledgements
 

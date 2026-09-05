@@ -30,6 +30,8 @@ def recognize(payload: RecognitionRequest, request: Request):
         record = RecognitionRepository(session).create(
             result.spell, result.confidence, result.source, result.created_at
         )
+    if request.app.state.mqtt_publisher:
+        request.app.state.mqtt_publisher.publish_recognition(result)
     if (
         settings.enable_home_assistant
         and settings.home_assistant_url

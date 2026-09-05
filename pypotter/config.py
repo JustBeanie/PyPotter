@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     home_assistant_url: str | None = None
     home_assistant_token: str | None = Field(default=None, repr=False)
     enable_home_assistant: bool = False
+    mqtt_host: str | None = None
+    mqtt_port: int = Field(default=1883, ge=1, le=65535)
+    mqtt_username: str | None = None
+    mqtt_password: str | None = Field(default=None, repr=False)
+    mqtt_discovery_prefix: str = "homeassistant"
+    mqtt_topic_prefix: str = "pypotter"
+    mqtt_client_id: str = "pypotter"
+    enable_mqtt: bool = False
     log_level: str = "INFO"
 
     def resolved_database_url(self) -> str:

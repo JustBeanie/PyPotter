@@ -13,6 +13,7 @@ from sqlalchemy import text
 
 from pypotter.api.routes import router
 from pypotter.config import Settings, get_settings
+from pypotter.integrations.mqtt import MQTTPublisher
 from pypotter.persistence.database import Base, make_engine, make_session_factory
 
 logger = logging.getLogger("pypotter.api")
@@ -24,10 +25,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     engine = make_engine(settings.resolved_database_url())
     Base.metadata.create_all(engine)
     factory = make_session_factory(settings.resolved_database_url())
+    mqtt_publisher = None
+    if settings.enable_mqtt and settings.mqtt_host:
+        mqtt_publisher = MQTTPublisher(
+            host=settings.mqtt_host,
+            port=settings.mqtt_port,
+            username=settings.mqtt_username,
+            password=settings.mqtt_password,
+            discovery_prefix=settings.mqtt_discovery_prefix,
+            topic_prefix=settings.mqtt_topic_prefix,
+            client_id=settings.mqtt_client_id,
+        )
+        try:
+            mqtt_publisher.start()
+        except Exception:
+            logger.exception("Unable to start MQTT publisher")
+    elif settings.enable_mqtt:
+        logger.warning("MQTT is enabled but PYPOTTER_MQTT_HOST is not configured")
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         yield
+        if mqtt_publisher:
+            mqtt_publisher.stop()
         engine.dispose()
 
     app = FastAPI(
@@ -38,6 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.session_factory = factory
+    app.state.mqtt_publisher = mqtt_publisher
 
     @app.middleware("http")
     async def request_context(request: Request, call_next):

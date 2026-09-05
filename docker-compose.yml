@@ -1,16 +1,35 @@
 services:
+  mqtt:
+    image: eclipse-mosquitto:2
+    ports:
+      - "${MQTT_BIND_ADDRESS:-127.0.0.1}:1883:1883"
+    volumes:
+      - mqtt-data:/mosquitto/data
+      - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    restart: unless-stopped
+
   pypotter:
     build: .
+    depends_on:
+      - mqtt
     ports:
       - "8000:8000"
     environment:
       PYPOTTER_ENABLE_HOME_ASSISTANT: "${PYPOTTER_ENABLE_HOME_ASSISTANT:-false}"
       PYPOTTER_HOME_ASSISTANT_URL: "${PYPOTTER_HOME_ASSISTANT_URL:-}"
       PYPOTTER_HOME_ASSISTANT_TOKEN: "${PYPOTTER_HOME_ASSISTANT_TOKEN:-}"
+      PYPOTTER_ENABLE_MQTT: "${PYPOTTER_ENABLE_MQTT:-true}"
+      PYPOTTER_MQTT_HOST: "${PYPOTTER_MQTT_HOST:-mqtt}"
+      PYPOTTER_MQTT_PORT: "${PYPOTTER_MQTT_PORT:-1883}"
+      PYPOTTER_MQTT_USERNAME: "${PYPOTTER_MQTT_USERNAME:-}"
+      PYPOTTER_MQTT_PASSWORD: "${PYPOTTER_MQTT_PASSWORD:-}"
+      PYPOTTER_MQTT_DISCOVERY_PREFIX: "${PYPOTTER_MQTT_DISCOVERY_PREFIX:-homeassistant}"
+      PYPOTTER_MQTT_TOPIC_PREFIX: "${PYPOTTER_MQTT_TOPIC_PREFIX:-pypotter}"
+      PYPOTTER_MQTT_CLIENT_ID: "${PYPOTTER_MQTT_CLIENT_ID:-pypotter}"
     volumes:
       - pypotter-data:/data
     restart: unless-stopped
 
 volumes:
+  mqtt-data:
   pypotter-data:
-
