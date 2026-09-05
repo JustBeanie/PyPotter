@@ -1,0 +1,16 @@
+services:
+  pypotter:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      PYPOTTER_ENABLE_HOME_ASSISTANT: "${PYPOTTER_ENABLE_HOME_ASSISTANT:-false}"
+      PYPOTTER_HOME_ASSISTANT_URL: "${PYPOTTER_HOME_ASSISTANT_URL:-}"
+      PYPOTTER_HOME_ASSISTANT_TOKEN: "${PYPOTTER_HOME_ASSISTANT_TOKEN:-}"
+    volumes:
+      - pypotter-data:/data
+    restart: unless-stopped
+
+volumes:
+  pypotter-data:
+

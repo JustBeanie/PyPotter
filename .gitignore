@@ -335,3 +335,16 @@ ASALocalRun/
 
 # Visual Studio Python Project
 .pyproj
+
+# PyPotter modern development
+.venv/
+.uv/
+.uv-cache/
+.pytest-tmp/
+data/
+coverage.xml
+.coverage
+dist/
+*.egg-info/
+frontend/dist/
+.pnpm-store/
