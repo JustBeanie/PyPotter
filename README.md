@@ -36,6 +36,38 @@ docker compose up --build
 
 The production image serves the compiled frontend from FastAPI, runs as a non-root user, exposes port 8000, and stores SQLite at `/data/pypotter.db`. Mount or retain the `pypotter-data` volume to preserve history.
 
+## MQTT through Home Assistant
+
+PyPotter does not connect to MQTT directly and `docker-compose.yml` does not start an MQTT broker. The integration path is:
+
+```text
+PyPotter -> Home Assistant REST API -> Home Assistant automation -> MQTT broker -> MQTT device
+```
+
+When a spell is recognized, PyPotter calls Home Assistant's `automation.trigger` service for `automation.wand_<spell>`. For example, recognizing `incendio` calls `automation.wand_incendio`. The Home Assistant automation then decides what to do; to publish to MQTT, give that automation an action like:
+
+```yaml
+actions:
+  - action: mqtt.publish
+    data:
+      topic: home/pypotter/incendio
+      payload: incendio
+```
+
+Configure the MQTT integration and broker in Home Assistant first, then create or rename the automation entity so its ID matches the spell (`automation.wand_incendio`, `automation.wand_lumos`, and so on). Home Assistant's [MQTT integration](https://www.home-assistant.io/integrations/mqtt) and [`mqtt.publish` action](https://www.home-assistant.io/actions/mqtt.publish/) handle the broker connection and message delivery.
+
+Enable the PyPotter-to-Home-Assistant leg in `.env`:
+
+```dotenv
+PYPOTTER_ENABLE_HOME_ASSISTANT=true
+PYPOTTER_HOME_ASSISTANT_URL=http://homeassistant:8123
+PYPOTTER_HOME_ASSISTANT_TOKEN=your-long-lived-access-token
+```
+
+The URL must be reachable from the `pypotter` container. Use the Home Assistant service name when both services share a Compose network, or a reachable host name/IP when Home Assistant runs separately. Do not use `localhost` for a Home Assistant process running outside the PyPotter container.
+
+The checked-in Compose file starts only PyPotter; it intentionally does not provision Home Assistant or a broker. After configuring the automation, verify the full path by submitting a recognition to PyPotter and subscribing to the configured topic with an MQTT client.
+
 ## Configuration and migration
 
 Copy `.env.example` to `.env`. All settings use the `PYPOTTER_` prefix. Home Assistant calls are disabled by default; set `PYPOTTER_ENABLE_HOME_ASSISTANT=true`, the URL, and a long-lived token to enable them.
