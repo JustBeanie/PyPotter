@@ -47,7 +47,7 @@ jobs:
       - uses: pnpm/action-setup@fc06bc1 # v4.4.0
         with:
           version: 11.19.0
-      - uses: actions/setup-node@2028fbc # v6.0.0
+      - uses: actions/setup-node@94196ee1d15439c1b6651cd87ef14e88ec435966 # v6.0.0
         with:
           node-version: 22
           cache: pnpm
