@@ -4,10 +4,12 @@ from pydantic import BaseModel, Field, field_validator
 
 from pypotter.domain.models import KNOWN_SPELLS
 
+MAX_IMAGE_BASE64_LENGTH = 6_000_000
+
 
 class RecognitionRequest(BaseModel):
     spell: str | None = Field(default=None, max_length=64)
-    image_base64: str | None = None
+    image_base64: str | None = Field(default=None, max_length=MAX_IMAGE_BASE64_LENGTH)
 
     @field_validator("spell")
     @classmethod

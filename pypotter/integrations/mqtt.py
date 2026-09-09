@@ -1,7 +1,9 @@
 """MQTT event publishing and Home Assistant MQTT discovery."""
 
+import ipaddress
 import json
 import logging
+import socket
 from typing import Any
 
 import paho.mqtt.client as mqtt
@@ -9,6 +11,23 @@ import paho.mqtt.client as mqtt
 from pypotter.domain.models import KNOWN_SPELLS, Recognition
 
 logger = logging.getLogger("pypotter.mqtt")
+
+
+def _is_loopback_host(host: str) -> bool:
+    # `mqtt` is the private Docker Compose service name. It is not publicly
+    # routable from the deployment, so credentials are sufficient there.
+    if host.lower() in {"localhost", "mqtt"}:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        try:
+            return all(
+                ipaddress.ip_address(info[4][0]).is_loopback
+                for info in socket.getaddrinfo(host, None)
+            )
+        except (OSError, ValueError):
+            return False
 
 
 def _topic(prefix: str, suffix: str) -> str:
@@ -80,6 +99,7 @@ class MQTTPublisher:
         discovery_prefix: str = "homeassistant",
         topic_prefix: str = "pypotter",
         client_id: str = "pypotter",
+        tls: bool = False,
         version: str = "2.0.0",
     ):
         self.events_topic = _topic(topic_prefix, "events")
@@ -93,8 +113,13 @@ class MQTTPublisher:
         self._started = False
 
         self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
-        if username:
-            self._client.username_pw_set(username, password)
+        if not username or not password:
+            raise ValueError("MQTT requires a username and password; anonymous access is disabled.")
+        if not _is_loopback_host(host) and not tls:
+            raise ValueError("MQTT TLS is required for non-local brokers.")
+        self._client.username_pw_set(username, password)
+        if tls:
+            self._client.tls_set()
         self._client.will_set(self.status_topic, payload="offline", qos=1, retain=True)
         self._client.on_connect = self._on_connect
         self._client.on_disconnect = self._on_disconnect

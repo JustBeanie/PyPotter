@@ -37,6 +37,9 @@ class _FakeClient:
     def username_pw_set(self, username, password):
         pass
 
+    def tls_set(self):
+        pass
+
     def will_set(self, topic, payload, qos, retain):
         pass
 

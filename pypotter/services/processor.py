@@ -1,6 +1,7 @@
 """Gesture/spell processing while keeping the original classifier behavior isolated."""
 
 import base64
+import binascii
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -12,8 +13,18 @@ class ProcessingError(ValueError):
 
 
 class SpellProcessor:
-    def __init__(self, training_dir: Path):
+    def __init__(
+        self,
+        training_dir: Path,
+        *,
+        max_image_bytes: int = 4 * 1024 * 1024,
+        max_image_pixels: int = 25_000_000,
+        max_image_dimension: int = 10_000,
+    ):
         self.training_dir = training_dir
+        self.max_image_bytes = max_image_bytes
+        self.max_image_pixels = max_image_pixels
+        self.max_image_dimension = max_image_dimension
 
     def process(self, spell: str | None = None, image_base64: str | None = None) -> Recognition:
         if spell:
@@ -25,12 +36,27 @@ class SpellProcessor:
         if not image_base64:
             raise ProcessingError("Provide a spell name or a base64-encoded wand image.")
         try:
-            raw = image_base64.split(",", 1)[-1]
+            raw = image_base64
+            if image_base64.startswith("data:"):
+                header, separator, raw = image_base64.partition(",")
+                if not separator or header.lower() not in {
+                    "data:image/png;base64",
+                    "data:image/jpeg;base64",
+                }:
+                    raise ProcessingError("Only PNG and JPEG images are accepted.")
+            if len(raw) > ((self.max_image_bytes + 2) // 3) * 4:
+                raise ProcessingError("The uploaded image is too large.")
             image = base64.b64decode(raw, validate=True)
-        except Exception as exc:  # pragma: no cover - exact decoder exceptions vary
+        except ProcessingError:
+            raise
+        except (binascii.Error, ValueError) as exc:
             raise ProcessingError("The image data is not valid base64.") from exc
-        if not image:
+        if not image or len(image) > self.max_image_bytes:
+            if len(image) > self.max_image_bytes:
+                raise ProcessingError("The uploaded image is too large.")
             raise ProcessingError("The uploaded image is empty.")
+        if not (image.startswith(b"\x89PNG\r\n\x1a\n") or image.startswith(b"\xff\xd8\xff")):
+            raise ProcessingError("Only PNG and JPEG images are accepted.")
         try:
             import cv2
             import numpy as np
@@ -57,6 +83,11 @@ class SpellProcessor:
             decoded = cv2.imdecode(encoded, cv2.IMREAD_GRAYSCALE)
             if decoded is None:
                 raise ProcessingError("The uploaded image could not be decoded.")
+            height, width = decoded.shape[:2]
+            if height > self.max_image_dimension or width > self.max_image_dimension:
+                raise ProcessingError("The uploaded image dimensions are too large.")
+            if height * width > self.max_image_pixels:
+                raise ProcessingError("The uploaded image has too many pixels.")
             sample_matrix = np.asarray(samples, dtype=np.float32)
             label_array = np.asarray(labels, dtype=np.intp)
             query = cv2.resize(decoded, (50, 50)).reshape(-1).astype(np.float32)

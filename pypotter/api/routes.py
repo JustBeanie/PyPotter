@@ -22,7 +22,12 @@ def spells():
 def recognize(payload: RecognitionRequest, request: Request):
     settings = request.app.state.settings
     try:
-        result = SpellProcessor(settings.training_dir).process(payload.spell, payload.image_base64)
+        result = SpellProcessor(
+            settings.training_dir,
+            max_image_bytes=settings.max_image_bytes,
+            max_image_pixels=settings.max_image_pixels,
+            max_image_dimension=settings.max_image_dimension,
+        ).process(payload.spell, payload.image_base64)
     except ProcessingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -42,9 +47,7 @@ def recognize(payload: RecognitionRequest, request: Request):
                 settings.home_assistant_url, settings.home_assistant_token
             ).trigger_spell(result.spell)
         except Exception as exc:
-            raise HTTPException(
-                status_code=502, detail=f"Home Assistant request failed: {exc}"
-            ) from exc
+            raise HTTPException(status_code=502, detail="Home Assistant request failed.") from exc
     return _response(record)
 
 

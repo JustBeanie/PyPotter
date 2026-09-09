@@ -24,8 +24,15 @@ class Settings(BaseSettings):
     mqtt_discovery_prefix: str = "homeassistant"
     mqtt_topic_prefix: str = "pypotter"
     mqtt_client_id: str = "pypotter"
+    mqtt_tls: bool = False
     enable_mqtt: bool = False
     log_level: str = "INFO"
+    max_request_body_bytes: int = Field(default=8 * 1024 * 1024, ge=1024, le=50 * 1024 * 1024)
+    max_image_bytes: int = Field(default=4 * 1024 * 1024, ge=1024, le=20 * 1024 * 1024)
+    max_image_pixels: int = Field(default=25_000_000, ge=10_000, le=100_000_000)
+    max_image_dimension: int = Field(default=10_000, ge=100, le=50_000)
+    rate_limit_requests: int = Field(default=30, ge=1, le=10_000)
+    rate_limit_window_seconds: int = Field(default=60, ge=1, le=86_400)
 
     def resolved_database_url(self) -> str:
         if self.database_url:

@@ -1,6 +1,8 @@
+import json
 import logging
 import time
 import uuid
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -35,6 +37,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             discovery_prefix=settings.mqtt_discovery_prefix,
             topic_prefix=settings.mqtt_topic_prefix,
             client_id=settings.mqtt_client_id,
+            tls=settings.mqtt_tls,
         )
         try:
             mqtt_publisher.start()
@@ -60,6 +63,79 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.session_factory = factory
     app.state.mqtt_publisher = mqtt_publisher
 
+    rate_windows: dict[str, deque[float]] = defaultdict(deque)
+
+    def security_event(event: str, **fields: object) -> None:
+        logger.info(json.dumps({"event": event, **fields}, separators=(",", ":")))
+
+    @app.middleware("http")
+    async def security_controls(request: Request, call_next):
+        if request.method in {"POST", "PUT", "PATCH"}:
+            content_length = request.headers.get("content-length")
+            if content_length:
+                try:
+                    too_large = int(content_length) > settings.max_request_body_bytes
+                except ValueError:
+                    too_large = True
+                if too_large:
+                    security_event(
+                        "request_rejected", reason="body_too_large", path=request.url.path
+                    )
+                    return JSONResponse(status_code=413, content={"code": "body_too_large"})
+
+            body = bytearray()
+            while True:
+                message = await request.receive()
+                if message["type"] == "http.disconnect":
+                    return JSONResponse(status_code=400, content={"code": "client_disconnected"})
+                body.extend(message.get("body", b""))
+                if len(body) > settings.max_request_body_bytes:
+                    security_event(
+                        "request_rejected", reason="body_too_large", path=request.url.path
+                    )
+                    return JSONResponse(status_code=413, content={"code": "body_too_large"})
+                if not message.get("more_body", False):
+                    break
+
+            replayed = False
+
+            async def receive_once():
+                nonlocal replayed
+                if replayed:
+                    return {"type": "http.disconnect"}
+                replayed = True
+                return {"type": "http.request", "body": bytes(body), "more_body": False}
+
+            request._receive = receive_once
+
+        if request.url.path.startswith("/api/"):
+            now = time.monotonic()
+            client_key = request.client.host if request.client else "unknown"
+            window = rate_windows[client_key]
+            cutoff = now - settings.rate_limit_window_seconds
+            while window and window[0] <= cutoff:
+                window.popleft()
+            if len(window) >= settings.rate_limit_requests:
+                security_event("rate_limit_exceeded", client=client_key, path=request.url.path)
+                return JSONResponse(
+                    status_code=429,
+                    content={"code": "rate_limited", "message": "Too many requests."},
+                    headers={"Retry-After": str(settings.rate_limit_window_seconds)},
+                )
+            window.append(now)
+
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+            "object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+        )
+        if settings.environment.lower() in {"production", "prod"}:
+            response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+        return response
+
     @app.middleware("http")
     async def request_context(request: Request, call_next):
         request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
@@ -68,14 +144,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         logger.info(
-            "request complete",
-            extra={
-                "request_id": request_id,
-                "method": request.method,
-                "path": request.url.path,
-                "status_code": response.status_code,
-                "duration_ms": round((time.perf_counter() - started) * 1000, 2),
-            },
+            json.dumps(
+                {
+                    "event": "request_complete",
+                    "request_id": request_id,
+                    "method": request.method,
+                    "path": request.url.path,
+                    "status_code": response.status_code,
+                    "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                },
+                separators=(",", ":"),
+            )
         )
         return response
 
