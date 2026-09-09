@@ -25,7 +25,7 @@ jobs:
         with:
           version: latest
           enable-cache: true
-      - uses: actions/setup-python@ece7cb0 # v6.3.0
+      - uses: actions/setup-python@337b0725b8770380d7cde73cfef696f1295727eb # v6.3.0
         with:
           python-version: ${{ matrix.python-version }}
       - run: uv sync --extra dev --locked
