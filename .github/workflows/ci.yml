@@ -97,8 +97,12 @@ jobs:
           push: false
           load: true
           tags: pypotter:ci
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: pypotter:ci
+          severity: HIGH,CRITICAL
+          exit-code: "1"
       - run: |
-          docker scout cves --exit-code 1 --only-severity high,critical pypotter:ci
           docker run -d --name pypotter-ci -p 8000:8000 pypotter:ci
           for i in $(seq 1 30); do curl --fail http://127.0.0.1:8000/ready && break || sleep 2; done
           curl --fail -X POST http://127.0.0.1:8000/api/v1/recognitions -H 'content-type: application/json' -d '{"spell":"incendio"}'
