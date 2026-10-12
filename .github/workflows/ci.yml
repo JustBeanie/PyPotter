@@ -76,6 +76,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with: { fetch-depth: 0 }
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with: { enable-cache: true }
       - run: uv sync --extra dev --locked
@@ -96,8 +97,6 @@ jobs:
           push: false
           load: true
           tags: pypotter:ci
-          sbom: true
-          provenance: mode=max
       - run: |
           docker scout cves --exit-code 1 --only-severity high,critical pypotter:ci
           docker run -d --name pypotter-ci -p 8000:8000 pypotter:ci
