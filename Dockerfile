@@ -14,7 +14,7 @@ COPY pyproject.toml README.md LICENSE ./
 COPY pypotter/ ./pypotter/
 COPY PyPotter.py HassApi.py CountsPerSec.py ./
 COPY --from=frontend-build /pypotter/static/ ./pypotter/static/
-RUN python -m pip install --no-cache-dir --upgrade pip && python -m pip install --no-cache-dir .
+RUN python -m pip install --no-cache-dir . && python -m pip uninstall --yes pip
 RUN mkdir -p /data && chown -R pypotter:pypotter /app /data
 USER pypotter
 VOLUME ["/data"]

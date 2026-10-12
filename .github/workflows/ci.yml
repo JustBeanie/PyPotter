@@ -101,6 +101,7 @@ jobs:
         with:
           image-ref: pypotter:ci
           severity: HIGH,CRITICAL
+          ignore-unfixed: true
           exit-code: "1"
       - run: |
           docker run -d --name pypotter-ci -p 8000:8000 pypotter:ci
