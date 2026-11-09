@@ -9,6 +9,7 @@ RUN pnpm run build
 FROM python:3.15-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYPOTTER_DATA_DIR=/data PYPOTTER_DATABASE_URL=sqlite:////data/pypotter.db
 WORKDIR /app
+RUN apt-get update && apt-get upgrade --yes --no-install-recommends && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system pypotter && useradd --system --gid pypotter --home-dir /app pypotter
 COPY pyproject.toml README.md LICENSE ./
 COPY pypotter/ ./pypotter/
