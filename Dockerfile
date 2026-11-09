@@ -6,7 +6,7 @@ RUN pnpm install --frozen-lockfile
 COPY frontend/ ./
 RUN pnpm run build
 
-FROM python:3.14-slim AS runtime
+FROM python:3.15-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYPOTTER_DATA_DIR=/data PYPOTTER_DATABASE_URL=sqlite:////data/pypotter.db
 WORKDIR /app
 RUN groupadd --system pypotter && useradd --system --gid pypotter --home-dir /app pypotter
