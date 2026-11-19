@@ -7,10 +7,8 @@ from pypotter.api.schemas import (
     TrainingRequest,
     TrainingResponse,
 )
-from pypotter.integrations.home_assistant import HomeAssistantClient
 from pypotter.persistence.repositories import RecognitionRepository
 from pypotter.services.processor import ProcessingError, SpellProcessor
-from pypotter.services.training import TrainingCatalog
 
 router = APIRouter()
 
@@ -20,34 +18,24 @@ def _response(record) -> RecognitionResponse:
 
 
 def _processor(request: Request) -> SpellProcessor:
-    settings = request.app.state.settings
-    return SpellProcessor(
-        settings.training_dir,
-        max_image_bytes=settings.max_image_bytes,
-        max_image_pixels=settings.max_image_pixels,
-        max_image_dimension=settings.max_image_dimension,
-    )
+    return request.app.state.processor
 
 
 @router.get("/spells", response_model=list[str])
 def spells(request: Request):
     processor = _processor(request)
-    return TrainingCatalog(processor.training_dir, processor).spells()
+    return processor.spells()
 
 
 @router.post("/spells/train", response_model=TrainingResponse, status_code=201)
 def train_spell(payload: TrainingRequest, request: Request):
     processor = _processor(request)
     try:
-        name, added = TrainingCatalog(processor.training_dir, processor).add_samples(
-            payload.name, payload.images
-        )
+        name, added = processor.train(payload.name, payload.images)
     except ProcessingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if request.app.state.mqtt_publisher:
-        request.app.state.mqtt_publisher.update_spells(
-            TrainingCatalog(processor.training_dir, processor).spells()
-        )
+        request.app.state.mqtt_publisher.update_spells(processor.spells())
     return TrainingResponse(spell=name, added=added)
 
 
@@ -70,6 +58,8 @@ def recognize(payload: RecognitionRequest, request: Request):
         and settings.home_assistant_url
         and settings.home_assistant_token
     ):
+        from pypotter.integrations.home_assistant import HomeAssistantClient
+
         try:
             HomeAssistantClient(
                 settings.home_assistant_url, settings.home_assistant_token

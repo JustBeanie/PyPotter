@@ -42,6 +42,22 @@ docker compose up --build
 
 The production image serves the compiled frontend from FastAPI, runs as a non-root user, exposes port 8000, and stores SQLite at `/data/pypotter.db`. Keep the `pypotter-data` volume to preserve history and trained gestures.
 
+## Run on constrained hardware
+
+Use `pypotter web` or the supplied Docker entry point to enable MQTT lifecycle control. Publish a command to `pypotter/edge/set` at QoS 1 with the topic prefix configured for PyPotter.
+
+| Command | What runs |
+| --- | --- |
+| `ON` | Web UI, recognition and training API, and MQTT spell events |
+| `HEADLESS` | Recognition and training API, and MQTT spell events |
+| `OFF` | The HTTP worker exits, releasing its memory and closing the port. MQTT wake control remains available. |
+
+`pypotter/edge/state` reports the selected mode as a retained message, or `ERROR` if the worker exits unexpectedly and `UNAVAILABLE` when the listener is offline. Use `/ready` for HTTP readiness after waking. Repeating the current mode leaves the worker running. Use a retained command to restore the selected mode on reconnect or restart. Set `PYPOTTER_EDGE_MODE=off` to start asleep. The controller uses the configured MQTT credentials with `-edge` appended to its client ID. Restrict who can publish to the command topic in the broker ACL.
+
+On a small Linux machine, use one PyPotter instance and an existing MQTT broker. The worker admits one recognition or training request at a time, bounds image dimensions before decoding, and caches up to 512 normalized samples in about 1.25 MiB of pixel data. Larger corpora are read in batches. Training through the API refreshes that cache. Restart the worker after editing corpus files directly. Routine HTTP access logs are off by default. Set `PYPOTTER_ACCESS_LOG=true` to enable them.
+
+The standalone IR camera script runs independently of the web worker. Use a low resolution camera stream, disable preview windows on a headless host, and use the brightness threshold alone if background subtraction is unnecessary. The pinned OpenCV package includes a Linux ARM64 wheel. Verify dependency availability separately for 32-bit ARM.
+
 ## MQTT and Home Assistant discovery
 
 PyPotter connects to an MQTT broker directly and advertises itself to Home Assistant using MQTT discovery. The integration path is:
@@ -71,7 +87,7 @@ PYPOTTER_MQTT_TOPIC_PREFIX=pypotter
 PYPOTTER_MQTT_CLIENT_ID=pypotter
 ```
 
-`docker-compose.yml` includes an Eclipse Mosquitto broker for local development. The default broker is intentionally anonymous and bound to `127.0.0.1:1883`; do not expose this configuration to an untrusted network. Home Assistant must connect to this same broker—for example, use the Docker host address when Home Assistant runs outside this Compose project, or use the `mqtt` service name when it shares the Compose network. The broker persists its data in the `mqtt-data` volume.
+`docker-compose.yml` includes an Eclipse Mosquitto broker for local development. Its host port binds to `127.0.0.1:1883` by default and the broker requires authentication. Configure a broker password file or point PyPotter at an existing authenticated broker. Home Assistant must connect to the same broker. The Compose broker persists its data in the `mqtt-data` volume.
 
 To verify the event stream independently:
 
@@ -83,7 +99,7 @@ Then submit a recognition through the web app or API. Home Assistant's [MQTT int
 
 ## Configuration and migration
 
-Copy `.env.example` to `.env`. All settings use the `PYPOTTER_` prefix. Home Assistant REST calls and MQTT publishing are disabled by default for local Python runs; the Compose setup enables MQTT and points it at its `mqtt` service. See [MQTT and Home Assistant discovery](#mqtt-and-home-assistant-discovery) for the broker settings.
+Copy `.env.example` to `.env`. All settings use the `PYPOTTER_` prefix. Home Assistant REST calls and MQTT publishing are disabled by default. Compose uses its `mqtt` service as the default host when MQTT is enabled. See [MQTT and Home Assistant discovery](#mqtt-and-home-assistant-discovery) for the broker settings.
 
 The legacy repository contains a `Training/` image corpus and no database format. `pypotter migrate` creates the SQLite schema without deleting or rewriting those files. Back up any existing database before a migration; `pypotter.migration.backup_database` creates a timestamped copy.
 

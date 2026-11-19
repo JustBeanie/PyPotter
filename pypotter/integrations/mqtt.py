@@ -4,6 +4,7 @@ import ipaddress
 import json
 import logging
 import socket
+from threading import Lock
 from typing import Any
 
 import paho.mqtt.client as mqtt
@@ -34,8 +35,24 @@ def _topic(prefix: str, suffix: str) -> str:
     return f"{prefix.strip('/')}/{suffix}"
 
 
+def configure_client(
+    client: mqtt.Client, host: str, username: str | None, password: str | None, tls: bool
+) -> None:
+    if not username or not password:
+        raise ValueError("MQTT requires a username and password; anonymous access is disabled.")
+    if not _is_loopback_host(host) and not tls:
+        raise ValueError("MQTT TLS is required for non-local brokers.")
+    client.username_pw_set(username, password)
+    if tls:
+        client.tls_set()
+    client.max_queued_messages_set(32)
+
+
 def build_discovery_payload(
-    *, client_id: str, topic_prefix: str, version: str = "2.0.0",
+    *,
+    client_id: str,
+    topic_prefix: str,
+    version: str = "2.0.0",
     spells: tuple[str, ...] = KNOWN_SPELLS,
 ) -> dict[str, Any]:
     """Build one Home Assistant device-discovery payload for PyPotter."""
@@ -111,20 +128,13 @@ class MQTTPublisher:
         self._client_id = client_id
         self._topic_prefix = topic_prefix
         self._version = version
-        self._discovery_payload = build_discovery_payload(
-            client_id=client_id, topic_prefix=topic_prefix, version=version, spells=spells
-        )
+        self._spells = tuple(spells)
+        self._discovery_lock = Lock()
         self._connected = False
         self._started = False
 
         self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
-        if not username or not password:
-            raise ValueError("MQTT requires a username and password; anonymous access is disabled.")
-        if not _is_loopback_host(host) and not tls:
-            raise ValueError("MQTT TLS is required for non-local brokers.")
-        self._client.username_pw_set(username, password)
-        if tls:
-            self._client.tls_set()
+        configure_client(self._client, host, username, password, tls)
         self._client.will_set(self.status_topic, payload="offline", qos=1, retain=True)
         self._client.on_connect = self._on_connect
         self._client.on_disconnect = self._on_disconnect
@@ -146,9 +156,13 @@ class MQTTPublisher:
             return
         try:
             if self._connected:
-                self._client.publish(self.status_topic, "offline", qos=1, retain=True)
-                self._client.disconnect()
+                published = self._client.publish(self.status_topic, "offline", qos=1, retain=True)
+                if published.rc == mqtt.MQTT_ERR_SUCCESS:
+                    published.wait_for_publish(timeout=1)
+        except RuntimeError:
+            logger.warning("Could not publish MQTT offline status")
         finally:
+            self._client.disconnect()
             self._client.loop_stop()
             self._connected = False
             self._started = False
@@ -179,14 +193,12 @@ class MQTTPublisher:
 
     def update_spells(self, spells: list[str]) -> None:
         """Refresh retained discovery after adding a custom spell."""
-        self._discovery_payload = build_discovery_payload(
-            client_id=self._client_id,
-            topic_prefix=self._topic_prefix,
-            version=self._version,
-            spells=tuple(spells),
-        )
-        if self._connected:
-            self._publish_discovery(self._client)
+        with self._discovery_lock:
+            if tuple(spells) == self._spells:
+                return
+            self._spells = tuple(spells)
+            if self._connected:
+                self._publish_discovery(self._client)
 
     def _on_connect(
         self,
@@ -196,13 +208,14 @@ class MQTTPublisher:
         reason_code: Any,
         properties: Any,
     ) -> None:
-        if int(reason_code) != mqtt.MQTT_ERR_SUCCESS:
+        if reason_code != 0:
             logger.warning("MQTT connection refused: %s", reason_code)
             return
         self._connected = True
         client.subscribe(self.home_assistant_status_topic, qos=1)
         client.publish(self.status_topic, "online", qos=1, retain=True)
-        self._publish_discovery(client)
+        with self._discovery_lock:
+            self._publish_discovery(client)
         logger.info("Connected to MQTT broker")
 
     def _on_disconnect(
@@ -218,12 +231,21 @@ class MQTTPublisher:
 
     def _on_message(self, client: mqtt.Client, userdata: Any, message: Any) -> None:
         if message.topic == self.home_assistant_status_topic and message.payload == b"online":
-            self._publish_discovery(client)
+            with self._discovery_lock:
+                self._publish_discovery(client)
 
     def _publish_discovery(self, client: mqtt.Client) -> None:
         result = client.publish(
             self.discovery_topic,
-            json.dumps(self._discovery_payload, separators=(",", ":")),
+            json.dumps(
+                build_discovery_payload(
+                    client_id=self._client_id,
+                    topic_prefix=self._topic_prefix,
+                    version=self._version,
+                    spells=self._spells,
+                ),
+                separators=(",", ":"),
+            ),
             qos=1,
             retain=True,
         )

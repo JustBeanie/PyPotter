@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -26,11 +27,14 @@ class Settings(BaseSettings):
     mqtt_client_id: str = "pypotter"
     mqtt_tls: bool = False
     enable_mqtt: bool = False
-    log_level: str = "INFO"
+    log_level: str = "WARNING"
+    access_log: bool = False
+    edge_mode: Literal["on", "headless", "off"] = "on"
+    max_connections: int = Field(default=16, ge=4, le=128)
     max_request_body_bytes: int = Field(default=8 * 1024 * 1024, ge=1024, le=50 * 1024 * 1024)
     max_image_bytes: int = Field(default=4 * 1024 * 1024, ge=1024, le=20 * 1024 * 1024)
-    max_image_pixels: int = Field(default=25_000_000, ge=10_000, le=100_000_000)
-    max_image_dimension: int = Field(default=10_000, ge=100, le=50_000)
+    max_image_pixels: int = Field(default=4_000_000, ge=10_000, le=100_000_000)
+    max_image_dimension: int = Field(default=4096, ge=100, le=50_000)
     rate_limit_requests: int = Field(default=30, ge=1, le=10_000)
     rate_limit_window_seconds: int = Field(default=60, ge=1, le=86_400)
 

@@ -46,15 +46,14 @@ def test_custom_spell_training_is_available_for_casting_and_image_recognition(cl
     assert success
     sample = "data:image/png;base64," + base64.b64encode(encoded.tobytes()).decode("ascii")
 
-    trained = client.post(
-        "/api/v1/spells/train", json={"name": "Lumos Maxima", "images": [sample]}
-    )
+    trained = client.post("/api/v1/spells/train", json={"name": "Lumos Maxima", "images": [sample]})
     assert trained.status_code == 201
     assert trained.json() == {"spell": "lumos_maxima", "added": 1}
     assert "lumos_maxima" in client.get("/api/v1/spells").json()
-    assert client.post("/api/v1/recognitions", json={"spell": "Lumos Maxima"}).json()[
-        "spell"
-    ] == "lumos_maxima"
+    assert (
+        client.post("/api/v1/recognitions", json={"spell": "Lumos Maxima"}).json()["spell"]
+        == "lumos_maxima"
+    )
     recognized = client.post("/api/v1/recognitions", json={"image_base64": sample})
     assert recognized.status_code == 201
     assert recognized.json()["spell"] == "lumos_maxima"

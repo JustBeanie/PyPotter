@@ -10,7 +10,6 @@ class RecognitionRequest(BaseModel):
     image_base64: str | None = Field(default=None, max_length=MAX_IMAGE_BASE64_LENGTH)
 
 
-
 class TrainingRequest(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     images: list[str] = Field(min_length=1, max_length=5)
