@@ -1,93 +1,127 @@
+![PyPotter banner](docs/readme-hero.svg)
+
 # PyPotter
 
-PyPotter turns trained wand gestures into Home Assistant automations. Version 2 keeps the original OpenCV camera/CLI workflow available and adds a portable, single-user web application for local use.
+Turn wand gestures into smart home actions. PyPotter recognizes trained spells, records casts in a local web app, and can publish spell events to Home Assistant through MQTT.
 
-## Quick start
+This is a fork of [Adam Thole's original PyPotter](https://github.com/adamthole/PyPotter). The original camera workflow remains available alongside the newer web app.
 
-Python 3.12, 3.13, and 3.14 are supported. Python 3.14 is the primary runtime.
+**Start here:** [Run locally](#run-locally) · [Train a spell](#train-a-spell) · [Connect Home Assistant](#connect-home-assistant) · [Use Docker](#use-docker) · [Project notes](#project-notes)
+
+## What you can do
+
+| | |
+| --- | --- |
+| **Cast** | Select a trained spell or upload a wand path image to test recognition. Recent casts stay visible after a reload. |
+| **Train** | Draw with a mouse or finger, or upload PNG/JPEG examples. Create custom spells from the web app. |
+| **Automate** | Enable MQTT discovery to expose spell triggers and sensors to Home Assistant. |
+| **Keep the camera workflow** | Run the original OpenCV script on a host with a camera and GUI support. |
+
+## Run locally
+
+You need Python 3.12, 3.13, or 3.14 and [uv](https://docs.astral.sh/uv/). Python 3.14 is the primary runtime.
 
 ```bash
 uv sync --extra dev
 uv run pypotter web
 ```
 
-Open <http://127.0.0.1:8000>. The web app lets you cast a trained spell, draw or upload examples for an existing spell, and create a custom spell. Casts are saved in SQLite and shown after reload.
+Open **<http://127.0.0.1:8000>**. The web app is designed for one person on a trusted local machine. It stores cast history in SQLite; no account setup is required.
 
 ## Train a spell
 
-In **Train a gesture**, choose an existing spell or **Create a new spell** and enter its name. Draw a wand path with a mouse or finger, or upload PNG/JPEG images of a wand path. Save 1 to 5 examples at a time; add more examples with small natural variations for better recognition. Saved examples become available to image recognition immediately, with no separate training command. Test the gesture by uploading a wand path image under **Start a cast**. Selecting a spell by name casts it directly, without testing its gesture.
+1. Open **Train a gesture** and choose an existing spell or **Create a new spell**.
+2. Draw a wand path or upload PNG/JPEG images of one.
+3. Save 1 to 5 examples at a time. Add a few natural variations to improve recognition.
+4. Under **Start a cast**, upload a wand path image to test it.
 
-Training images live in `Training/<spell_name>/` by default. Set `PYPOTTER_TRAINING_DIR` to use another location. In Docker, the initial corpus and new examples live in the persistent `/data/Training` volume. Custom spell names use lowercase letters, numbers, and underscores internally, so `Lumos Maxima` becomes `lumos_maxima`.
+Saved examples are available to image recognition immediately. Selecting a spell by name casts it directly, without testing its gesture.
 
-## CLI and library compatibility
+Training images are stored in `Training/<spell_name>/` by default. Set `PYPOTTER_TRAINING_DIR` to move them. Custom names use lowercase letters, numbers, and underscores internally: `Lumos Maxima` becomes `lumos_maxima`.
 
-The original camera workflow remains available as `python PyPotter.py [video source] [Home Assistant URL] [API token] [remove background] [show windows] [training] [debug FPS]`. The historical modules `PyPotter`, `HassApi`, and `CountsPerSec` remain importable.
+## Connect Home Assistant
 
-The modern CLI provides a deterministic local workflow:
+![A gesture becomes a Home Assistant automation through PyPotter and MQTT](docs/readme-flow.svg)
+
+When MQTT is enabled, PyPotter publishes spell events to `pypotter/events` and a retained discovery message to `homeassistant/device/pypotter/config`. Home Assistant discovers a PyPotter device with a **Last spell** sensor, a confidence sensor, and a trigger for each trained spell, including custom spells.
+
+1. Connect PyPotter and [Home Assistant's MQTT integration](https://www.home-assistant.io/integrations/mqtt) to the same broker.
+2. Set these values in `.env` (or your deployment environment):
+
+   ```dotenv
+   PYPOTTER_ENABLE_MQTT=true
+   PYPOTTER_MQTT_HOST=your-broker-host
+   PYPOTTER_MQTT_PORT=1883
+   PYPOTTER_MQTT_USERNAME=your-username
+   PYPOTTER_MQTT_PASSWORD=your-password
+   PYPOTTER_MQTT_DISCOVERY_PREFIX=homeassistant
+   PYPOTTER_MQTT_TOPIC_PREFIX=pypotter
+   PYPOTTER_MQTT_CLIENT_ID=pypotter
+   ```
+
+3. In a Home Assistant automation, choose the discovered **PyPotter** device and a spell trigger, such as `spell_cast / incendio`.
+
+The automation can control a Home Assistant entity or send an [`mqtt.publish` action](https://www.home-assistant.io/actions/mqtt.publish/) to another device. This MQTT path does not need a Home Assistant REST token. PyPotter republishes discovery when it receives Home Assistant's MQTT birth message.
+
+An event looks like this:
+
+```json
+{"spell":"incendio","confidence":1.0,"source":"spell","created_at":"2026-01-01T00:00:00+00:00"}
+```
+
+To watch events directly, subscribe to `pypotter/#` with an MQTT client. For example, with `mosquitto_sub`:
+
+```bash
+mosquitto_sub -h your-broker-host -p 1883 -u your-username -P your-password -t 'pypotter/#' -v
+```
+
+The Compose project includes an Eclipse Mosquitto broker for local development. Its host port binds to `127.0.0.1:1883` by default. Configure broker credentials or point PyPotter at an existing authenticated broker, and connect Home Assistant to that same broker. Broker data lives in the `mqtt-data` volume.
+
+## Use Docker
+
+```bash
+docker compose up --build
+```
+
+Open **<http://127.0.0.1:8000>**. The image serves the compiled frontend through FastAPI, runs as a non-root user, and stores SQLite data at `/data/pypotter.db`. Keep the `pypotter-data` volume to preserve cast history and trained gestures. In Docker, training images live at `/data/Training`.
+
+The camera script runs separately from the web container. Use a camera-capable host for the original OpenCV workflow; it is not started by Compose.
+
+## CLI, API, and migration
+
+The original entry point is still available:
+
+```text
+python PyPotter.py [video source] [Home Assistant URL] [API token] [remove background] [show windows] [training] [debug FPS]
+```
+
+The historical `PyPotter`, `HassApi`, and `CountsPerSec` modules remain importable. For the modern CLI:
 
 ```bash
 uv run pypotter recognize incendio
 uv run pypotter migrate
 ```
 
-## Web/API
+The FastAPI application factory is `pypotter.api.app:create_app`. Health checks are at `/health` and `/ready`; application routes are under `/api/v1`. See the checked-in [OpenAPI contract](openapi.json) for request and response details.
 
-The FastAPI application factory is `pypotter.api.app:create_app`. System endpoints are `/health` and `/ready`; application endpoints are versioned under `/api/v1`. The checked-in backend-owned contract is [openapi.json](openapi.json). The React TypeScript client lives in `frontend/` and is built with Vite.
+Copy [`.env.example`](.env.example) to `.env` to configure PyPotter. Settings use the `PYPOTTER_` prefix. Home Assistant REST calls and MQTT publishing are disabled by default.
 
-## Docker
+The original project has a `Training/` image corpus and no database format. `pypotter migrate` creates the SQLite schema without changing those images. Back up an existing database before migration; `pypotter.migration.backup_database` creates a timestamped copy.
 
-```bash
-docker compose up --build
-```
+## Project notes
 
-The production image serves the compiled frontend from FastAPI, runs as a non-root user, exposes port 8000, and stores SQLite at `/data/pypotter.db`. Keep the `pypotter-data` volume to preserve history and trained gestures.
+| Area | Location |
+| --- | --- |
+| Spell concepts | `pypotter/domain` |
+| Recognition and training | `pypotter/services` |
+| SQLAlchemy repository and SQLite | `pypotter/persistence` |
+| MQTT and Home Assistant | `pypotter/integrations` |
+| FastAPI adapters | `pypotter/api` |
+| React and TypeScript client | `frontend/` |
 
-## MQTT and Home Assistant discovery
+The web release is local and unauthenticated. Use it on a trusted machine or network. It does not stream the camera in the browser. The original OpenCV pipeline needs a camera-capable host and GUI support when preview windows are enabled.
 
-PyPotter connects to an MQTT broker directly and advertises itself to Home Assistant using MQTT discovery. The integration path is:
-
-```text
-PyPotter -> MQTT broker -> Home Assistant MQTT discovery -> Home Assistant automations/devices
-```
-
-When MQTT is enabled, PyPotter publishes a retained discovery payload to `homeassistant/device/pypotter/config` and publishes recognition events to `pypotter/events`. Home Assistant discovers one PyPotter device with a `Last spell` sensor, a confidence sensor, and one device trigger for every trained spell, including custom spells added in the web app. A recognition is published as JSON:
-
-```json
-{"spell":"incendio","confidence":1.0,"source":"spell","created_at":"2026-01-01T00:00:00+00:00"}
-```
-
-In Home Assistant, open an automation, choose the discovered PyPotter device as the trigger, and select the spell trigger (for example, `spell_cast / incendio`). The automation can then control any Home Assistant entity or use the [`mqtt.publish` action](https://www.home-assistant.io/actions/mqtt.publish/) to send a command to another MQTT device. No Home Assistant REST token is needed for this MQTT path.
-
-Enable the MQTT connection in `.env`:
-
-```dotenv
-PYPOTTER_ENABLE_MQTT=true
-PYPOTTER_MQTT_HOST=mqtt
-PYPOTTER_MQTT_PORT=1883
-PYPOTTER_MQTT_USERNAME=
-PYPOTTER_MQTT_PASSWORD=
-PYPOTTER_MQTT_DISCOVERY_PREFIX=homeassistant
-PYPOTTER_MQTT_TOPIC_PREFIX=pypotter
-PYPOTTER_MQTT_CLIENT_ID=pypotter
-```
-
-`docker-compose.yml` includes an Eclipse Mosquitto broker for local development. The default broker is intentionally anonymous and bound to `127.0.0.1:1883`; do not expose this configuration to an untrusted network. Home Assistant must connect to this same broker—for example, use the Docker host address when Home Assistant runs outside this Compose project, or use the `mqtt` service name when it shares the Compose network. The broker persists its data in the `mqtt-data` volume.
-
-To verify the event stream independently:
-
-```bash
-mosquitto_sub -h 127.0.0.1 -p 1883 -t 'pypotter/#' -v
-```
-
-Then submit a recognition through the web app or API. Home Assistant's [MQTT integration](https://www.home-assistant.io/integrations/mqtt) must be configured with the same broker and discovery prefix. PyPotter also listens for the MQTT birth message on `<discovery_prefix>/status` and republishes discovery when Home Assistant restarts.
-
-## Configuration and migration
-
-Copy `.env.example` to `.env`. All settings use the `PYPOTTER_` prefix. Home Assistant REST calls and MQTT publishing are disabled by default for local Python runs; the Compose setup enables MQTT and points it at its `mqtt` service. See [MQTT and Home Assistant discovery](#mqtt-and-home-assistant-discovery) for the broker settings.
-
-The legacy repository contains a `Training/` image corpus and no database format. `pypotter migrate` creates the SQLite schema without deleting or rewriting those files. Back up any existing database before a migration; `pypotter.migration.backup_database` creates a timestamped copy.
-
-## Development
+### Development
 
 ```bash
 uv sync --extra dev
@@ -98,12 +132,10 @@ uv run pytest --cov
 cd frontend && npm install && npm run typecheck && npm test && npm run build
 ```
 
-GitHub Actions checks Python 3.12–3.14, frontend typechecking/build/tests, OpenAPI drift, package build, and a Docker smoke workflow. Pull requests need no secrets. CI uses least-privilege permissions and cancels superseded runs.
+GitHub Actions checks supported Python versions, frontend typechecking and tests, OpenAPI drift, package build, and a Docker smoke workflow.
 
-## Architecture and limitations
+## Credits
 
-`pypotter/domain` contains stable spell concepts, `services` contains processing, `persistence` contains the SQLAlchemy repository boundary, `integrations` contains Home Assistant and MQTT, and `api` contains FastAPI adapters. The initial web release is intentionally local and unauthenticated. PostgreSQL, camera streaming inside the browser, and production authentication remain deferred. The original OpenCV pipeline still requires a camera-capable host and GUI support, so it is not silently enabled in the container.
+**Original project:** [PyPotter by Adam Thole](https://github.com/adamthole/PyPotter). This repository is a fork that builds on his camera based wand recognition project and retains its [MIT license](LICENSE).
 
-## Acknowledgements
-
-PyPotter shares inspiration and code from [Raspberry Potter](https://github.com/sean-obrien/rpotter/), [pi_to_potter](https://github.com/mamacker/pi_to_potter), and [computer-vision](https://github.com/nrsyed/computer-vision).
+The original project also credits [Raspberry Potter](https://github.com/sean-obrien/rpotter/), [pi_to_potter](https://github.com/mamacker/pi_to_potter), and [computer-vision](https://github.com/nrsyed/computer-vision) for inspiration and code.
