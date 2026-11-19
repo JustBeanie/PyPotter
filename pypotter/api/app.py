@@ -72,7 +72,7 @@ def create_app(settings: Settings | None = None, *, ui_enabled: bool = True) -> 
 
     app = FastAPI(
         title="PyPotter API",
-        version="2.0.0",
+        version="2.1.0",
         description="Local spell recognition and history API.",
         lifespan=lifespan,
         docs_url="/docs" if ui_enabled else None,

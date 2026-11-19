@@ -48,7 +48,7 @@ def test_readiness_failure_keeps_database_error_server_side(tmp_path, monkeypatc
 
 def test_validation_error_does_not_echo_request_data(tmp_path):
     client = make_client(tmp_path)
-    response = client.post("/api/v1/recognitions", json={"spell": "sensitive-secret"})
+    response = client.post("/api/v1/recognitions", json={"spell": ["sensitive-secret"]})
 
     assert response.status_code == 422
     assert response.json()["code"] == "validation_error"

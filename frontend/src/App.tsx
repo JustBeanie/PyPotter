@@ -146,6 +146,6 @@ export function App() {
       {trainingMessage && <p className={trainingStatus === "error" ? "error" : "training-message"} role={trainingStatus === "error" ? "alert" : "status"}>{trainingMessage}</p>}
     </section>
     <section className="history" aria-labelledby="history-title"><div className="section-heading"><div><p className="eyebrow">THE ARCHIVE</p><h2 id="history-title">Recent casts</h2></div><span>{recent.length} saved</span></div>{recent.length === 0 ? <p className="empty">Your first cast will appear here.</p> : <ul>{recent.map((item) => <li key={item.id}><span className="history-icon">✦</span><span><strong>{label(item.spell)}</strong><small>{new Date(item.created_at).toLocaleString()}</small></span><span className="source">{item.source}</span></li>)}</ul>}</section>
-    <footer>PyPotter 2.0 · single-user local mode</footer>
+    <footer>PyPotter 2.1 · single-user local mode</footer>
   </main>;
 }

@@ -52,7 +52,7 @@ def build_discovery_payload(
     *,
     client_id: str,
     topic_prefix: str,
-    version: str = "2.0.0",
+    version: str = "2.1.0",
     spells: tuple[str, ...] = KNOWN_SPELLS,
 ) -> dict[str, Any]:
     """Build one Home Assistant device-discovery payload for PyPotter."""
@@ -118,7 +118,7 @@ class MQTTPublisher:
         topic_prefix: str = "pypotter",
         client_id: str = "pypotter",
         tls: bool = False,
-        version: str = "2.0.0",
+        version: str = "2.1.0",
         spells: tuple[str, ...] = KNOWN_SPELLS,
     ):
         self.events_topic = _topic(topic_prefix, "events")
