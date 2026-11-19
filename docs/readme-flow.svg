@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="180" viewBox="0 0 1200 180" role="img" aria-labelledby="title desc">
+  <title id="title">From gesture to automation</title>
+  <desc id="desc">Draw or upload a gesture, PyPotter recognizes the spell, MQTT publishes an event, and Home Assistant runs an automation.</desc>
+  <rect width="1200" height="180" rx="20" fill="#f7f3eb"/>
+  <path d="M68 90h1064" stroke="#c9bda9" stroke-width="2" stroke-dasharray="6 9"/>
+  <g fill="#f7f3eb" stroke="#b38347" stroke-width="2">
+    <circle cx="140" cy="90" r="38"/><circle cx="444" cy="90" r="38"/><circle cx="748" cy="90" r="38"/><circle cx="1052" cy="90" r="38"/>
+  </g>
+  <g fill="#293047" font-family="Arial, sans-serif" text-anchor="middle">
+    <text x="140" y="98" font-size="24">1</text><text x="444" y="98" font-size="24">2</text><text x="748" y="98" font-size="24">3</text><text x="1052" y="98" font-size="24">4</text>
+    <text x="140" y="154" font-size="19">Gesture</text><text x="444" y="154" font-size="19">Recognize</text><text x="748" y="154" font-size="19">MQTT event</text><text x="1052" y="154" font-size="19">Automation</text>
+  </g>
+</svg>
