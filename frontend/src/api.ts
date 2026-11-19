@@ -6,4 +6,4 @@ export type Recognition = {
   created_at: string;
 };
 
-export { getRecognitions as history, postRecognition as recognize } from "./generated/client";
+export { getRecognitions as history, getSpells as spells, postRecognition as recognize, postTraining as trainSpell } from "./generated/client";

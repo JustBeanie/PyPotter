@@ -341,6 +341,7 @@ ASALocalRun/
 .uv/
 .uv-cache/
 .pytest-tmp/
+.pytest-tmp*/
 data/
 coverage.xml
 .coverage

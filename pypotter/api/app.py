@@ -1,34 +1,50 @@
-import json
 import logging
-import time
-import uuid
-from collections import defaultdict, deque
+import shutil
 from contextlib import asynccontextmanager
+from functools import lru_cache
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
+from sqlalchemy.orm import sessionmaker
 
+from pypotter.api.limits import RequestLimits
 from pypotter.api.routes import router
 from pypotter.config import Settings, get_settings
-from pypotter.integrations.mqtt import MQTTPublisher
-from pypotter.persistence.database import Base, make_engine, make_session_factory
+from pypotter.domain.models import KNOWN_SPELLS
+from pypotter.persistence.database import Base, make_engine
+from pypotter.services.processor import SpellProcessor
 
 logger = logging.getLogger("pypotter.api")
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, *, ui_enabled: bool = True) -> FastAPI:
     settings = settings or get_settings()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
+    bundled_training = Path(__file__).resolve().parents[2] / "Training"
+    if bundled_training.is_dir() and bundled_training.resolve() != settings.training_dir.resolve():
+        settings.training_dir.mkdir(parents=True, exist_ok=True)
+        for name in KNOWN_SPELLS:
+            source = bundled_training / name
+            target = settings.training_dir / name
+            if source.is_dir() and not target.exists():
+                shutil.copytree(source, target)
     engine = make_engine(settings.resolved_database_url())
     Base.metadata.create_all(engine)
-    factory = make_session_factory(settings.resolved_database_url())
+    factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    processor = SpellProcessor(
+        settings.training_dir,
+        max_image_bytes=settings.max_image_bytes,
+        max_image_pixels=settings.max_image_pixels,
+        max_image_dimension=settings.max_image_dimension,
+    )
     mqtt_publisher = None
     if settings.enable_mqtt and settings.mqtt_host:
+        from pypotter.integrations.mqtt import MQTTPublisher
+
         mqtt_publisher = MQTTPublisher(
             host=settings.mqtt_host,
             port=settings.mqtt_port,
@@ -38,125 +54,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             topic_prefix=settings.mqtt_topic_prefix,
             client_id=settings.mqtt_client_id,
             tls=settings.mqtt_tls,
+            spells=tuple(processor.spells()),
         )
-        try:
-            mqtt_publisher.start()
-        except Exception:
-            logger.exception("Unable to start MQTT publisher")
     elif settings.enable_mqtt:
         logger.warning("MQTT is enabled but PYPOTTER_MQTT_HOST is not configured")
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        yield
-        if mqtt_publisher:
-            mqtt_publisher.stop()
-        engine.dispose()
+        try:
+            if mqtt_publisher:
+                mqtt_publisher.start()
+            yield
+        finally:
+            if mqtt_publisher:
+                mqtt_publisher.stop()
+            engine.dispose()
 
     app = FastAPI(
         title="PyPotter API",
-        version="2.0.0",
+        version="2.1.0",
         description="Local spell recognition and history API.",
         lifespan=lifespan,
+        docs_url="/docs" if ui_enabled else None,
+        redoc_url="/redoc" if ui_enabled else None,
     )
     app.state.settings = settings
     app.state.session_factory = factory
     app.state.mqtt_publisher = mqtt_publisher
 
-    rate_windows: dict[str, deque[float]] = defaultdict(deque)
-
-    def security_event(event: str, **fields: object) -> None:
-        logger.info(json.dumps({"event": event, **fields}, separators=(",", ":")))
-
-    @app.middleware("http")
-    async def security_controls(request: Request, call_next):
-        if request.method in {"POST", "PUT", "PATCH"}:
-            content_length = request.headers.get("content-length")
-            if content_length:
-                try:
-                    too_large = int(content_length) > settings.max_request_body_bytes
-                except ValueError:
-                    too_large = True
-                if too_large:
-                    security_event(
-                        "request_rejected", reason="body_too_large", path=request.url.path
-                    )
-                    return JSONResponse(status_code=413, content={"code": "body_too_large"})
-
-            body = bytearray()
-            while True:
-                message = await request.receive()
-                if message["type"] == "http.disconnect":
-                    return JSONResponse(status_code=400, content={"code": "client_disconnected"})
-                body.extend(message.get("body", b""))
-                if len(body) > settings.max_request_body_bytes:
-                    security_event(
-                        "request_rejected", reason="body_too_large", path=request.url.path
-                    )
-                    return JSONResponse(status_code=413, content={"code": "body_too_large"})
-                if not message.get("more_body", False):
-                    break
-
-            replayed = False
-
-            async def receive_once():
-                nonlocal replayed
-                if replayed:
-                    return {"type": "http.disconnect"}
-                replayed = True
-                return {"type": "http.request", "body": bytes(body), "more_body": False}
-
-            request._receive = receive_once
-
-        if request.url.path.startswith("/api/"):
-            now = time.monotonic()
-            client_key = request.client.host if request.client else "unknown"
-            window = rate_windows[client_key]
-            cutoff = now - settings.rate_limit_window_seconds
-            while window and window[0] <= cutoff:
-                window.popleft()
-            if len(window) >= settings.rate_limit_requests:
-                security_event("rate_limit_exceeded", client=client_key, path=request.url.path)
-                return JSONResponse(
-                    status_code=429,
-                    content={"code": "rate_limited", "message": "Too many requests."},
-                    headers={"Retry-After": str(settings.rate_limit_window_seconds)},
-                )
-            window.append(now)
-
-        response = await call_next(request)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
-            "object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
-        )
-        if settings.environment.lower() in {"production", "prod"}:
-            response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
-        return response
-
-    @app.middleware("http")
-    async def request_context(request: Request, call_next):
-        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
-        request.state.request_id = request_id
-        started = time.perf_counter()
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        logger.info(
-            json.dumps(
-                {
-                    "event": "request_complete",
-                    "request_id": request_id,
-                    "method": request.method,
-                    "path": request.url.path,
-                    "status_code": response.status_code,
-                    "duration_ms": round((time.perf_counter() - started) * 1000, 2),
-                },
-                separators=(",", ":"),
-            )
-        )
-        return response
+    app.state.processor = processor
+    app.add_middleware(RequestLimits, settings=settings)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, exc: RequestValidationError):
@@ -165,8 +92,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             content={
                 "code": "validation_error",
                 "message": "Request validation failed.",
-                "details": jsonable_encoder(exc.errors()),
-                "request_id": request.state.request_id,
+                "details": [
+                    {"loc": err["loc"], "msg": err["msg"], "type": err["type"]}
+                    for err in exc.errors()
+                ],
+                "request_id": request.headers.get("X-Request-ID", ""),
             },
         )
 
@@ -180,7 +110,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             content={
                 "code": f"http_{exc.status_code}",
                 "message": message,
-                "request_id": getattr(request.state, "request_id", ""),
+                "request_id": request.headers.get("X-Request-ID", ""),
             },
         )
 
@@ -189,21 +119,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ok"}
 
     @app.get("/ready", tags=["system"])
-    async def ready():
+    def ready():
         try:
             with engine.connect() as connection:
                 connection.execute(text("SELECT 1"))
-        except Exception as exc:
-            return JSONResponse(
-                status_code=503, content={"status": "not_ready", "detail": str(exc)}
-            )
+        except Exception:
+            logger.exception("Readiness check failed")
+            return JSONResponse(status_code=503, content={"status": "not_ready"})
         return {"status": "ready", "database": "ok"}
 
     app.include_router(router, prefix="/api/v1")
     static_dir = Path(__file__).resolve().parent.parent / "static"
-    if static_dir.exists():
+    if ui_enabled and static_dir.is_dir():
         app.mount("/", StaticFiles(directory=static_dir, html=True), name="frontend")
     return app
 
 
-app = create_app()
+@lru_cache(maxsize=1)
+def _default_app() -> FastAPI:
+    return create_app()
+
+
+def __getattr__(name: str):
+    if name == "app":
+        return _default_app()
+    raise AttributeError(name)

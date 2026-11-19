@@ -6,6 +6,11 @@ services:
     volumes:
       - mqtt-data:/mosquitto/data
       - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    logging:
+      driver: local
+      options:
+        max-size: "2m"
+        max-file: "2"
     restart: unless-stopped
 
   pypotter:
@@ -27,8 +32,22 @@ services:
       PYPOTTER_MQTT_TOPIC_PREFIX: "${PYPOTTER_MQTT_TOPIC_PREFIX:-pypotter}"
       PYPOTTER_MQTT_CLIENT_ID: "${PYPOTTER_MQTT_CLIENT_ID:-pypotter}"
       PYPOTTER_MQTT_TLS: "${PYPOTTER_MQTT_TLS:-false}"
+      PYPOTTER_EDGE_MODE: "${PYPOTTER_EDGE_MODE:-on}"
+      PYPOTTER_LOG_LEVEL: "${PYPOTTER_LOG_LEVEL:-WARNING}"
+      PYPOTTER_ACCESS_LOG: "${PYPOTTER_ACCESS_LOG:-false}"
+      PYPOTTER_MAX_CONNECTIONS: "${PYPOTTER_MAX_CONNECTIONS:-16}"
+      PYPOTTER_MAX_REQUEST_BODY_BYTES: "${PYPOTTER_MAX_REQUEST_BODY_BYTES:-8388608}"
+      PYPOTTER_MAX_IMAGE_BYTES: "${PYPOTTER_MAX_IMAGE_BYTES:-4194304}"
+      PYPOTTER_MAX_IMAGE_PIXELS: "${PYPOTTER_MAX_IMAGE_PIXELS:-4000000}"
+      PYPOTTER_MAX_IMAGE_DIMENSION: "${PYPOTTER_MAX_IMAGE_DIMENSION:-4096}"
+    stop_grace_period: 20s
     volumes:
       - pypotter-data:/data
+    logging:
+      driver: local
+      options:
+        max-size: "2m"
+        max-file: "2"
     restart: unless-stopped
 
 volumes:

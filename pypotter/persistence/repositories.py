@@ -14,7 +14,6 @@ class RecognitionRepository:
         )
         self.session.add(record)
         self.session.commit()
-        self.session.refresh(record)
         return record
 
     def recent(self, limit: int = 20):

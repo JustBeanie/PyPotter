@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pypotter"
-version = "2.0.0"
+version = "2.1.0"
 description = "Control Home Assistant with wand gestures, with a local web application."
 readme = "README.md"
 license = { file = "LICENSE" }

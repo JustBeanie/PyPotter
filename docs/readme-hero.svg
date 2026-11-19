@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-labelledby="title desc">
+  <title id="title">PyPotter</title>
+  <desc id="desc">A wand gesture becomes a spark that connects to a home.</desc>
+  <rect width="1200" height="320" rx="24" fill="#171b2d"/>
+  <path d="M0 250C170 205 254 290 411 258c158-32 224-142 383-139 175 3 262 116 406 63v138H0Z" fill="#222842"/>
+  <path d="M0 293c165-29 256-8 393-29 183-29 269-142 430-114 151 25 244 119 377 72v98H0Z" fill="#2d3250"/>
+  <g fill="none" stroke="#e9bd73" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M831 235c60-15 47-69 10-67-26 1-29 34-7 43 24 10 58-13 75-40 19-30 47-45 89-44" stroke-width="5"/>
+    <path d="m997 127 23-39m-23 39 42-9m-42 9 36 27" stroke-width="4"/>
+  </g>
+  <g fill="#e9bd73">
+    <circle cx="1053" cy="80" r="4"/><circle cx="1072" cy="148" r="3"/><circle cx="924" cy="104" r="3"/>
+    <path d="m847 80 4 12 12 4-12 4-4 12-4-12-12-4 12-4Z"/>
+    <path d="m1097 196 3 9 9 3-9 3-3 9-3-9-9-3 9-3Z"/>
+  </g>
+  <path d="M1009 242v-61l59-44 59 44v61h-30v-44h-58v44Z" fill="none" stroke="#d6deea" stroke-linejoin="round" stroke-width="6"/>
+  <rect x="1051" y="207" width="33" height="35" rx="2" fill="#e9bd73"/>
+  <text x="72" y="135" fill="#f7f2e9" font-family="Georgia, 'Times New Roman', serif" font-size="78" font-weight="700">PyPotter</text>
+  <text x="76" y="183" fill="#d6deea" font-family="Arial, sans-serif" font-size="23" letter-spacing="1">WAND GESTURES FOR YOUR SMART HOME</text>
+  <path d="M76 213h389" stroke="#e9bd73" stroke-width="2"/>
+</svg>

@@ -35,6 +35,7 @@
           "image_base64": {
             "anyOf": [
               {
+                "maxLength": 6000000,
                 "type": "string"
               },
               {
@@ -98,6 +99,49 @@
           "created_at"
         ],
         "title": "RecognitionResponse",
+        "type": "object"
+      },
+      "TrainingRequest": {
+        "properties": {
+          "images": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Images",
+            "type": "array"
+          },
+          "name": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "images"
+        ],
+        "title": "TrainingRequest",
+        "type": "object"
+      },
+      "TrainingResponse": {
+        "properties": {
+          "added": {
+            "title": "Added",
+            "type": "integer"
+          },
+          "spell": {
+            "title": "Spell",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spell",
+          "added"
+        ],
+        "title": "TrainingResponse",
         "type": "object"
       },
       "ValidationError": {
@@ -284,6 +328,44 @@
           }
         },
         "summary": "Spells"
+      }
+    },
+    "/api/v1/spells/train": {
+      "post": {
+        "operationId": "train_spell_api_v1_spells_train_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Train Spell"
       }
     },
     "/health": {
