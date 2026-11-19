@@ -124,6 +124,7 @@ def create_app(settings: Settings | None = None, *, ui_enabled: bool = True) -> 
             with engine.connect() as connection:
                 connection.execute(text("SELECT 1"))
         except Exception:
+            logger.exception("Readiness check failed")
             return JSONResponse(status_code=503, content={"status": "not_ready"})
         return {"status": "ready", "database": "ok"}
 
