@@ -5,7 +5,7 @@ import binascii
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pypotter.domain.models import KNOWN_SPELLS, Recognition
+from pypotter.domain.models import Recognition
 
 
 class ProcessingError(ValueError):
@@ -27,14 +27,62 @@ class SpellProcessor:
         self.max_image_dimension = max_image_dimension
 
     def process(self, spell: str | None = None, image_base64: str | None = None) -> Recognition:
+        from pypotter.services.training import TrainingCatalog, normalize_spell_name
+
         if spell:
-            normalized = spell.strip().lower().replace(" ", "_")
-            if normalized not in KNOWN_SPELLS:
+            normalized = normalize_spell_name(spell)
+            if normalized not in TrainingCatalog(self.training_dir, self).spells():
                 raise ProcessingError(f"Unknown spell '{spell}'. Choose a trained spell.")
             return Recognition(normalized, 1.0, "spell", datetime.now(UTC))
 
         if not image_base64:
             raise ProcessingError("Provide a spell name or a base64-encoded wand image.")
+        decoded = self.decode_image(image_base64)
+        try:
+            import cv2
+            import numpy as np
+
+            samples: list[np.ndarray] = []
+            labels: list[int] = []
+            label_names: list[str] = []
+            for name in TrainingCatalog(self.training_dir, self).spells():
+                directory = self.training_dir / name
+                if not directory.is_dir() or directory.is_symlink():
+                    continue
+                for image_path in sorted(directory.glob("*.png")):
+                    training_image = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
+                    if training_image is not None:
+                        samples.append(
+                            cv2.resize(training_image, (50, 50)).reshape(-1).astype(np.float32)
+                        )
+                        labels.append(len(label_names))
+                if len(labels) > 0 and labels[-1] == len(label_names):
+                    label_names.append(name)
+            if not samples:
+                raise ProcessingError("No trained images were found in the training directory.")
+            sample_matrix = np.asarray(samples, dtype=np.float32)
+            label_array = np.asarray(labels, dtype=np.intp)
+            query = cv2.resize(decoded, (50, 50)).reshape(-1).astype(np.float32)
+
+            squared_distances = np.sum((sample_matrix - query) ** 2, axis=1)
+            neighbor_count = min(5, len(squared_distances))
+            neighbors = np.argpartition(squared_distances, neighbor_count - 1)[:neighbor_count]
+            # Weight close examples so a new spell's first exact sample can
+            # win even when established spells have many more images.
+            weights = 1.0 / (1.0 + np.sqrt(squared_distances[neighbors]))
+            votes = np.bincount(
+                label_array[neighbors], weights=weights, minlength=len(label_names)
+            )
+            index = int(np.argmax(votes))
+            confidence = float(votes[index] / votes.sum())
+            return Recognition(label_names[index], confidence, "image", datetime.now(UTC))
+        except ProcessingError:
+            raise
+        except (ImportError, OSError, ValueError) as exc:
+            raise ProcessingError("The uploaded image could not be processed.") from exc
+
+    def decode_image(self, image_base64: str):
+        """Validate an uploaded image and return its grayscale pixels."""
         try:
             raw = image_base64
             if image_base64.startswith("data:"):
@@ -61,24 +109,6 @@ class SpellProcessor:
             import cv2
             import numpy as np
 
-            samples: list[np.ndarray] = []
-            labels: list[int] = []
-            label_names: list[str] = []
-            for directory in sorted(
-                path
-                for path in self.training_dir.iterdir()
-                if path.is_dir() and path.name in KNOWN_SPELLS
-            ):
-                label_names.append(directory.name)
-                for image_path in sorted(directory.iterdir()):
-                    training_image = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
-                    if training_image is not None:
-                        samples.append(
-                            cv2.resize(training_image, (50, 50)).reshape(-1).astype(np.float32)
-                        )
-                        labels.append(len(label_names) - 1)
-            if not samples:
-                raise ProcessingError("No trained images were found in the training directory.")
             encoded = np.frombuffer(image, dtype=np.uint8)
             decoded = cv2.imdecode(encoded, cv2.IMREAD_GRAYSCALE)
             if decoded is None:
@@ -88,20 +118,7 @@ class SpellProcessor:
                 raise ProcessingError("The uploaded image dimensions are too large.")
             if height * width > self.max_image_pixels:
                 raise ProcessingError("The uploaded image has too many pixels.")
-            sample_matrix = np.asarray(samples, dtype=np.float32)
-            label_array = np.asarray(labels, dtype=np.intp)
-            query = cv2.resize(decoded, (50, 50)).reshape(-1).astype(np.float32)
-
-            # OpenCV 5's headless wheel no longer includes cv2.ml. Keep the
-            # original 5-neighbor vote using NumPy so the lightweight wheel
-            # remains sufficient for image recognition.
-            squared_distances = np.sum((sample_matrix - query) ** 2, axis=1)
-            neighbor_count = min(5, len(squared_distances))
-            neighbors = np.argpartition(squared_distances, neighbor_count - 1)[:neighbor_count]
-            votes = np.bincount(label_array[neighbors], minlength=len(label_names))
-            index = int(np.argmax(votes))
-            confidence = 1.0 / (1.0 + float(squared_distances[neighbors].min()))
-            return Recognition(label_names[index], confidence, "image", datetime.now(UTC))
+            return decoded
         except ProcessingError:
             raise
         except (ImportError, OSError, ValueError) as exc:

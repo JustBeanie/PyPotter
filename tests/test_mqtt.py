@@ -25,6 +25,13 @@ def test_discovery_contains_spell_triggers_and_state_sensors():
     }
 
 
+def test_discovery_can_include_a_custom_spell():
+    payload = build_discovery_payload(
+        client_id="pypotter", topic_prefix="pypotter", spells=("incendio", "lumos_maxima")
+    )
+    assert payload["cmps"]["trigger_lumos_maxima"]["payload"] == "lumos_maxima"
+
+
 class _PublishResult:
     rc = 0
 

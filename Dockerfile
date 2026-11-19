@@ -7,13 +7,14 @@ COPY frontend/ ./
 RUN pnpm run build
 
 FROM python:3.15-slim AS runtime
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYPOTTER_DATA_DIR=/data PYPOTTER_DATABASE_URL=sqlite:////data/pypotter.db
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYPOTTER_DATA_DIR=/data PYPOTTER_DATABASE_URL=sqlite:////data/pypotter.db PYPOTTER_TRAINING_DIR=/data/Training
 WORKDIR /app
 RUN apt-get update && apt-get upgrade --yes --no-install-recommends && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system pypotter && useradd --system --gid pypotter --home-dir /app pypotter
 COPY pyproject.toml README.md LICENSE ./
 COPY pypotter/ ./pypotter/
 COPY PyPotter.py HassApi.py CountsPerSec.py ./
+COPY Training/ ./Training/
 COPY --from=frontend-build /pypotter/static/ ./pypotter/static/
 RUN python -m pip install --no-cache-dir . && python -m pip uninstall --yes pip
 RUN mkdir -p /data && chown -R pypotter:pypotter /app /data

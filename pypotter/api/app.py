@@ -1,5 +1,6 @@
 import json
 import logging
+import shutil
 import time
 import uuid
 from collections import defaultdict, deque
@@ -15,8 +16,11 @@ from sqlalchemy import text
 
 from pypotter.api.routes import router
 from pypotter.config import Settings, get_settings
+from pypotter.domain.models import KNOWN_SPELLS
 from pypotter.integrations.mqtt import MQTTPublisher
 from pypotter.persistence.database import Base, make_engine, make_session_factory
+from pypotter.services.processor import SpellProcessor
+from pypotter.services.training import TrainingCatalog
 
 logger = logging.getLogger("pypotter.api")
 
@@ -24,11 +28,20 @@ logger = logging.getLogger("pypotter.api")
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
+    bundled_training = Path(__file__).resolve().parents[2] / "Training"
+    if bundled_training.is_dir() and bundled_training.resolve() != settings.training_dir.resolve():
+        settings.training_dir.mkdir(parents=True, exist_ok=True)
+        for name in KNOWN_SPELLS:
+            source = bundled_training / name
+            target = settings.training_dir / name
+            if source.is_dir() and not target.exists():
+                shutil.copytree(source, target)
     engine = make_engine(settings.resolved_database_url())
     Base.metadata.create_all(engine)
     factory = make_session_factory(settings.resolved_database_url())
     mqtt_publisher = None
     if settings.enable_mqtt and settings.mqtt_host:
+        processor = SpellProcessor(settings.training_dir)
         mqtt_publisher = MQTTPublisher(
             host=settings.mqtt_host,
             port=settings.mqtt_port,
@@ -38,6 +51,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             topic_prefix=settings.mqtt_topic_prefix,
             client_id=settings.mqtt_client_id,
             tls=settings.mqtt_tls,
+            spells=tuple(TrainingCatalog(settings.training_dir, processor).spells()),
         )
         try:
             mqtt_publisher.start()

@@ -2,16 +2,14 @@ import argparse
 import json
 import sys
 
-from pypotter.domain.models import KNOWN_SPELLS
-
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pypotter", description="PyPotter spell recognition tools"
     )
     subparsers = parser.add_subparsers(dest="command")
-    recognize = subparsers.add_parser("recognize", help="process a known spell")
-    recognize.add_argument("spell", choices=KNOWN_SPELLS)
+    recognize = subparsers.add_parser("recognize", help="process a trained spell")
+    recognize.add_argument("spell")
     subparsers.add_parser("web", help="run the local web application")
     subparsers.add_parser("migrate", help="initialize SQLite without deleting legacy files")
     return parser

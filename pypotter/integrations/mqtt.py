@@ -35,7 +35,8 @@ def _topic(prefix: str, suffix: str) -> str:
 
 
 def build_discovery_payload(
-    *, client_id: str, topic_prefix: str, version: str = "2.0.0"
+    *, client_id: str, topic_prefix: str, version: str = "2.0.0",
+    spells: tuple[str, ...] = KNOWN_SPELLS,
 ) -> dict[str, Any]:
     """Build one Home Assistant device-discovery payload for PyPotter."""
     events_topic = _topic(topic_prefix, "events")
@@ -58,7 +59,7 @@ def build_discovery_payload(
             "suggested_display_precision": 3,
         },
     }
-    for spell in KNOWN_SPELLS:
+    for spell in spells:
         components[f"trigger_{spell}"] = {
             "p": "device_automation",
             "automation_type": "trigger",
@@ -101,13 +102,17 @@ class MQTTPublisher:
         client_id: str = "pypotter",
         tls: bool = False,
         version: str = "2.0.0",
+        spells: tuple[str, ...] = KNOWN_SPELLS,
     ):
         self.events_topic = _topic(topic_prefix, "events")
         self.status_topic = _topic(topic_prefix, "status")
         self.discovery_topic = _topic(discovery_prefix, f"device/{client_id.strip('/')}/config")
         self.home_assistant_status_topic = _topic(discovery_prefix, "status")
+        self._client_id = client_id
+        self._topic_prefix = topic_prefix
+        self._version = version
         self._discovery_payload = build_discovery_payload(
-            client_id=client_id, topic_prefix=topic_prefix, version=version
+            client_id=client_id, topic_prefix=topic_prefix, version=version, spells=spells
         )
         self._connected = False
         self._started = False
@@ -171,6 +176,17 @@ class MQTTPublisher:
             logger.warning("MQTT recognition publish failed with return code %s", result.rc)
             return False
         return True
+
+    def update_spells(self, spells: list[str]) -> None:
+        """Refresh retained discovery after adding a custom spell."""
+        self._discovery_payload = build_discovery_payload(
+            client_id=self._client_id,
+            topic_prefix=self._topic_prefix,
+            version=self._version,
+            spells=tuple(spells),
+        )
+        if self._connected:
+            self._publish_discovery(self._client)
 
     def _on_connect(
         self,

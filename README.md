@@ -11,7 +11,13 @@ uv sync --extra dev
 uv run pypotter web
 ```
 
-Open <http://127.0.0.1:8000>. The web workflow accepts a trained spell, persists the result in SQLite, and shows recent casts after reload.
+Open <http://127.0.0.1:8000>. The web app lets you cast a trained spell, draw or upload examples for an existing spell, and create a custom spell. Casts are saved in SQLite and shown after reload.
+
+## Train a spell
+
+In **Train a gesture**, choose an existing spell or **Create a new spell** and enter its name. Draw a wand path with a mouse or finger, or upload PNG/JPEG images of a wand path. Save 1 to 5 examples at a time; add more examples with small natural variations for better recognition. Saved examples become available to image recognition immediately, with no separate training command. Test the gesture by uploading a wand path image under **Start a cast**. Selecting a spell by name casts it directly, without testing its gesture.
+
+Training images live in `Training/<spell_name>/` by default. Set `PYPOTTER_TRAINING_DIR` to use another location. In Docker, the initial corpus and new examples live in the persistent `/data/Training` volume. Custom spell names use lowercase letters, numbers, and underscores internally, so `Lumos Maxima` becomes `lumos_maxima`.
 
 ## CLI and library compatibility
 
@@ -34,7 +40,7 @@ The FastAPI application factory is `pypotter.api.app:create_app`. System endpoin
 docker compose up --build
 ```
 
-The production image serves the compiled frontend from FastAPI, runs as a non-root user, exposes port 8000, and stores SQLite at `/data/pypotter.db`. Mount or retain the `pypotter-data` volume to preserve history.
+The production image serves the compiled frontend from FastAPI, runs as a non-root user, exposes port 8000, and stores SQLite at `/data/pypotter.db`. Keep the `pypotter-data` volume to preserve history and trained gestures.
 
 ## MQTT and Home Assistant discovery
 
@@ -44,7 +50,7 @@ PyPotter connects to an MQTT broker directly and advertises itself to Home Assis
 PyPotter -> MQTT broker -> Home Assistant MQTT discovery -> Home Assistant automations/devices
 ```
 
-When MQTT is enabled, PyPotter publishes a retained discovery payload to `homeassistant/device/pypotter/config` and publishes recognition events to `pypotter/events`. Home Assistant discovers one PyPotter device with a `Last spell` sensor, a confidence sensor, and one device trigger for every trained spell. A recognition is published as JSON:
+When MQTT is enabled, PyPotter publishes a retained discovery payload to `homeassistant/device/pypotter/config` and publishes recognition events to `pypotter/events`. Home Assistant discovers one PyPotter device with a `Last spell` sensor, a confidence sensor, and one device trigger for every trained spell, including custom spells added in the web app. A recognition is published as JSON:
 
 ```json
 {"spell":"incendio","confidence":1.0,"source":"spell","created_at":"2026-01-01T00:00:00+00:00"}

@@ -60,7 +60,7 @@ MicroSecondsBetweenFrames = (1 / DesiredFps) * 1000000
 
 TrainingResolution = 50
 TrainingNumPixels = TrainingResolution * TrainingResolution
-TrainingFolderName = "Training"
+TrainingFolderName = os.environ.get("PYPOTTER_TRAINING_DIR", "Training")
 SpellEndMovement = 0.5 * (DefaultFps / DesiredFps )
 MinSpellLength = 15 * (DesiredFps / DefaultFps)
 MinSpellDistance = 100
@@ -194,20 +194,8 @@ def PerformSpell(spell):
     """
     Make the desired Home Assistant REST API call based on the spell
     """
-    if (spell=="incendio"):
-        hass.TriggerAutomation("automation.wand_incendio")
-    elif (spell=="aguamenti"):
-        hass.TriggerAutomation("automation.wand_aguamenti")
-    elif (spell=="alohomora"):
-        hass.TriggerAutomation("automation.wand_alohomora")
-    elif (spell=="silencio"):
-        hass.TriggerAutomation("automation.wand_silencio")
-    elif (spell=="specialis_revelio"):
-        hass.TriggerAutomation("automation.wand_specialis_revelio")
-    elif (spell=="revelio"):
-        hass.TriggerAutomation("automation.wand_revelio")
-    elif (spell == "tarantallegra"):
-        hass.TriggerAutomation("automation.wand_tarantallegra")
+    if spell and spell not in ("mistakes", "error", "Error"):
+        hass.TriggerAutomation("automation.wand_" + spell)
 
 def CheckForPattern(wandTracks, exampleFrame):
     """

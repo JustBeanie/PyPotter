@@ -1,8 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_validator
-
-from pypotter.domain.models import KNOWN_SPELLS
+from pydantic import BaseModel, Field
 
 MAX_IMAGE_BASE64_LENGTH = 6_000_000
 
@@ -11,15 +9,16 @@ class RecognitionRequest(BaseModel):
     spell: str | None = Field(default=None, max_length=64)
     image_base64: str | None = Field(default=None, max_length=MAX_IMAGE_BASE64_LENGTH)
 
-    @field_validator("spell")
-    @classmethod
-    def normalize_spell(cls, value: str | None) -> str | None:
-        if value is None:
-            return value
-        normalized = value.strip().lower().replace(" ", "_")
-        if normalized not in KNOWN_SPELLS:
-            raise ValueError("Spell must be one of the trained PyPotter spells.")
-        return normalized
+
+
+class TrainingRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    images: list[str] = Field(min_length=1, max_length=5)
+
+
+class TrainingResponse(BaseModel):
+    spell: str
+    added: int
 
 
 class RecognitionResponse(BaseModel):
