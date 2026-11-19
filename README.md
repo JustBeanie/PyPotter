@@ -11,7 +11,13 @@ uv sync --extra dev
 uv run pypotter web
 ```
 
-Open <http://127.0.0.1:8000>. The web workflow accepts a trained spell, persists the result in SQLite, and shows recent casts after reload.
+Open <http://127.0.0.1:8000>. The web app lets you cast a trained spell, draw or upload examples for an existing spell, and create a custom spell. Casts are saved in SQLite and shown after reload.
+
+## Train a spell
+
+In **Train a gesture**, choose an existing spell or **Create a new spell** and enter its name. Draw a wand path with a mouse or finger, or upload PNG/JPEG images of a wand path. Save 1 to 5 examples at a time; add more examples with small natural variations for better recognition. Saved examples become available to image recognition immediately, with no separate training command. Test the gesture by uploading a wand path image under **Start a cast**. Selecting a spell by name casts it directly, without testing its gesture.
+
+Training images live in `Training/<spell_name>/` by default. Set `PYPOTTER_TRAINING_DIR` to use another location. In Docker, the initial corpus and new examples live in the persistent `/data/Training` volume. Custom spell names use lowercase letters, numbers, and underscores internally, so `Lumos Maxima` becomes `lumos_maxima`.
 
 ## CLI and library compatibility
 
@@ -34,7 +40,23 @@ The FastAPI application factory is `pypotter.api.app:create_app`. System endpoin
 docker compose up --build
 ```
 
-The production image serves the compiled frontend from FastAPI, runs as a non-root user, exposes port 8000, and stores SQLite at `/data/pypotter.db`. Mount or retain the `pypotter-data` volume to preserve history.
+The production image serves the compiled frontend from FastAPI, runs as a non-root user, exposes port 8000, and stores SQLite at `/data/pypotter.db`. Keep the `pypotter-data` volume to preserve history and trained gestures.
+
+## Run on constrained hardware
+
+Use `pypotter web` or the supplied Docker entry point to enable MQTT lifecycle control. Publish a command to `pypotter/edge/set` at QoS 1 with the topic prefix configured for PyPotter.
+
+| Command | What runs |
+| --- | --- |
+| `ON` | Web UI, recognition and training API, and MQTT spell events |
+| `HEADLESS` | Recognition and training API, and MQTT spell events |
+| `OFF` | The HTTP worker exits, releasing its memory and closing the port. MQTT wake control remains available. |
+
+`pypotter/edge/state` reports the selected mode as a retained message, or `ERROR` if the worker exits unexpectedly and `UNAVAILABLE` when the listener is offline. Use `/ready` for HTTP readiness after waking. Repeating the current mode leaves the worker running. Use a retained command to restore the selected mode on reconnect or restart. Set `PYPOTTER_EDGE_MODE=off` to start asleep. The controller uses the configured MQTT credentials with `-edge` appended to its client ID. Restrict who can publish to the command topic in the broker ACL.
+
+On a small Linux machine, use one PyPotter instance and an existing MQTT broker. The worker admits one recognition or training request at a time, bounds image dimensions before decoding, and caches up to 512 normalized samples in about 1.25 MiB of pixel data. Larger corpora are read in batches. Training through the API refreshes that cache. Restart the worker after editing corpus files directly. Routine HTTP access logs are off by default. Set `PYPOTTER_ACCESS_LOG=true` to enable them.
+
+The standalone IR camera script runs independently of the web worker. Use a low resolution camera stream, disable preview windows on a headless host, and use the brightness threshold alone if background subtraction is unnecessary. The pinned OpenCV package includes a Linux ARM64 wheel. Verify dependency availability separately for 32-bit ARM.
 
 ## MQTT and Home Assistant discovery
 
@@ -44,7 +66,7 @@ PyPotter connects to an MQTT broker directly and advertises itself to Home Assis
 PyPotter -> MQTT broker -> Home Assistant MQTT discovery -> Home Assistant automations/devices
 ```
 
-When MQTT is enabled, PyPotter publishes a retained discovery payload to `homeassistant/device/pypotter/config` and publishes recognition events to `pypotter/events`. Home Assistant discovers one PyPotter device with a `Last spell` sensor, a confidence sensor, and one device trigger for every trained spell. A recognition is published as JSON:
+When MQTT is enabled, PyPotter publishes a retained discovery payload to `homeassistant/device/pypotter/config` and publishes recognition events to `pypotter/events`. Home Assistant discovers one PyPotter device with a `Last spell` sensor, a confidence sensor, and one device trigger for every trained spell, including custom spells added in the web app. A recognition is published as JSON:
 
 ```json
 {"spell":"incendio","confidence":1.0,"source":"spell","created_at":"2026-01-01T00:00:00+00:00"}
@@ -65,7 +87,7 @@ PYPOTTER_MQTT_TOPIC_PREFIX=pypotter
 PYPOTTER_MQTT_CLIENT_ID=pypotter
 ```
 
-`docker-compose.yml` includes an Eclipse Mosquitto broker for local development. The default broker is intentionally anonymous and bound to `127.0.0.1:1883`; do not expose this configuration to an untrusted network. Home Assistant must connect to this same broker—for example, use the Docker host address when Home Assistant runs outside this Compose project, or use the `mqtt` service name when it shares the Compose network. The broker persists its data in the `mqtt-data` volume.
+`docker-compose.yml` includes an Eclipse Mosquitto broker for local development. Its host port binds to `127.0.0.1:1883` by default and the broker requires authentication. Configure a broker password file or point PyPotter at an existing authenticated broker. Home Assistant must connect to the same broker. The Compose broker persists its data in the `mqtt-data` volume.
 
 To verify the event stream independently:
 
@@ -77,7 +99,7 @@ Then submit a recognition through the web app or API. Home Assistant's [MQTT int
 
 ## Configuration and migration
 
-Copy `.env.example` to `.env`. All settings use the `PYPOTTER_` prefix. Home Assistant REST calls and MQTT publishing are disabled by default for local Python runs; the Compose setup enables MQTT and points it at its `mqtt` service. See [MQTT and Home Assistant discovery](#mqtt-and-home-assistant-discovery) for the broker settings.
+Copy `.env.example` to `.env`. All settings use the `PYPOTTER_` prefix. Home Assistant REST calls and MQTT publishing are disabled by default. Compose uses its `mqtt` service as the default host when MQTT is enabled. See [MQTT and Home Assistant discovery](#mqtt-and-home-assistant-discovery) for the broker settings.
 
 The legacy repository contains a `Training/` image corpus and no database format. `pypotter migrate` creates the SQLite schema without deleting or rewriting those files. Back up any existing database before a migration; `pypotter.migration.backup_database` creates a timestamped copy.
 

@@ -1,8 +1,12 @@
 from fastapi import APIRouter, HTTPException, Request
 
-from pypotter.api.schemas import HistoryResponse, RecognitionRequest, RecognitionResponse
-from pypotter.domain.models import KNOWN_SPELLS
-from pypotter.integrations.home_assistant import HomeAssistantClient
+from pypotter.api.schemas import (
+    HistoryResponse,
+    RecognitionRequest,
+    RecognitionResponse,
+    TrainingRequest,
+    TrainingResponse,
+)
 from pypotter.persistence.repositories import RecognitionRepository
 from pypotter.services.processor import ProcessingError, SpellProcessor
 
@@ -13,21 +17,33 @@ def _response(record) -> RecognitionResponse:
     return RecognitionResponse.model_validate(record, from_attributes=True)
 
 
+def _processor(request: Request) -> SpellProcessor:
+    return request.app.state.processor
+
+
 @router.get("/spells", response_model=list[str])
-def spells():
-    return list(KNOWN_SPELLS)
+def spells(request: Request):
+    processor = _processor(request)
+    return processor.spells()
+
+
+@router.post("/spells/train", response_model=TrainingResponse, status_code=201)
+def train_spell(payload: TrainingRequest, request: Request):
+    processor = _processor(request)
+    try:
+        name, added = processor.train(payload.name, payload.images)
+    except ProcessingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if request.app.state.mqtt_publisher:
+        request.app.state.mqtt_publisher.update_spells(processor.spells())
+    return TrainingResponse(spell=name, added=added)
 
 
 @router.post("/recognitions", response_model=RecognitionResponse, status_code=201)
 def recognize(payload: RecognitionRequest, request: Request):
     settings = request.app.state.settings
     try:
-        result = SpellProcessor(
-            settings.training_dir,
-            max_image_bytes=settings.max_image_bytes,
-            max_image_pixels=settings.max_image_pixels,
-            max_image_dimension=settings.max_image_dimension,
-        ).process(payload.spell, payload.image_base64)
+        result = _processor(request).process(payload.spell, payload.image_base64)
     except ProcessingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -42,6 +58,8 @@ def recognize(payload: RecognitionRequest, request: Request):
         and settings.home_assistant_url
         and settings.home_assistant_token
     ):
+        from pypotter.integrations.home_assistant import HomeAssistantClient
+
         try:
             HomeAssistantClient(
                 settings.home_assistant_url, settings.home_assistant_token

@@ -22,8 +22,10 @@ class HassApi:
             'Authorization': "Bearer " + self.token,
         }
         payload = {"entity_id": name}
-        response = requests.post(url, data=json.dumps(payload), headers=headers)
-        print(response.text)
+        response = requests.post(
+            url, json=payload, headers=headers, timeout=(3, 5), allow_redirects=False
+        )
+        response.raise_for_status()
 
     def TurnOnLight(self, name, color):
         url = self.url + "/api/services/light/turn_on"

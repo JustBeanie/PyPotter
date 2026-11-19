@@ -2,17 +2,17 @@ import argparse
 import json
 import sys
 
-from pypotter.domain.models import KNOWN_SPELLS
-
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pypotter", description="PyPotter spell recognition tools"
     )
     subparsers = parser.add_subparsers(dest="command")
-    recognize = subparsers.add_parser("recognize", help="process a known spell")
-    recognize.add_argument("spell", choices=KNOWN_SPELLS)
-    subparsers.add_parser("web", help="run the local web application")
+    recognize = subparsers.add_parser("recognize", help="process a trained spell")
+    recognize.add_argument("spell")
+    web = subparsers.add_parser("web", help="run the local web application")
+    web.add_argument("--host", default="127.0.0.1")
+    web.add_argument("--port", type=int, default=8000)
     subparsers.add_parser("migrate", help="initialize SQLite without deleting legacy files")
     return parser
 
@@ -27,10 +27,13 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result.__dict__, default=str))
         return 0
     if args.command == "web":
-        import uvicorn
+        from pypotter.edge import run_web
 
-        uvicorn.run("pypotter.api.app:app", host="127.0.0.1", port=8000, reload=False)
-        return 0
+        try:
+            return run_web(args.host, args.port)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
     if args.command == "migrate":
         from alembic import command
         from alembic.config import Config
