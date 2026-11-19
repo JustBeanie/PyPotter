@@ -31,6 +31,33 @@ def test_security_headers_and_hsts_are_environment_appropriate(tmp_path):
     assert "max-age=63072000" in prod.get("/health").headers["Strict-Transport-Security"]
 
 
+def test_readiness_failure_keeps_database_error_server_side(tmp_path, monkeypatch, caplog):
+    client = make_client(tmp_path)
+
+    def fail_connect(*args, **kwargs):
+        raise RuntimeError("sensitive database connection details")
+
+    monkeypatch.setattr("sqlalchemy.engine.Engine.connect", fail_connect)
+    response = client.get("/ready")
+
+    assert response.status_code == 503
+    assert response.json() == {"status": "not_ready"}
+    assert "sensitive database connection details" not in response.text
+    assert "Readiness check failed" in caplog.text
+
+
+def test_validation_error_does_not_echo_request_data(tmp_path):
+    client = make_client(tmp_path)
+    response = client.post("/api/v1/recognitions", json={"spell": "sensitive-secret"})
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "validation_error"
+    assert "sensitive-secret" not in response.text
+    assert all(
+        "input" not in detail and "ctx" not in detail for detail in response.json()["details"]
+    )
+
+
 def test_request_body_limit_and_rate_limit(tmp_path):
     client = make_client(tmp_path, max_request_body_bytes=1024, rate_limit_requests=2)
     assert client.post("/api/v1/recognitions", json={"spell": "incendio"}).status_code == 201

@@ -165,7 +165,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             content={
                 "code": "validation_error",
                 "message": "Request validation failed.",
-                "details": jsonable_encoder(exc.errors()),
+                "details": jsonable_encoder(
+                    [
+                        {key: value for key, value in error.items() if key not in {"input", "ctx"}}
+                        for error in exc.errors()
+                    ]
+                ),
                 "request_id": request.state.request_id,
             },
         )
@@ -193,10 +198,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             with engine.connect() as connection:
                 connection.execute(text("SELECT 1"))
-        except Exception as exc:
-            return JSONResponse(
-                status_code=503, content={"status": "not_ready", "detail": str(exc)}
-            )
+        except Exception:
+            logger.exception("Readiness check failed")
+            return JSONResponse(status_code=503, content={"status": "not_ready"})
         return {"status": "ready", "database": "ok"}
 
     app.include_router(router, prefix="/api/v1")
