@@ -46,6 +46,8 @@ def test_custom_spell_training_is_available_for_casting_and_image_recognition(cl
     assert success
     sample = "data:image/png;base64," + base64.b64encode(encoded.tobytes()).decode("ascii")
 
+    # Warm the existing corpus before training to verify that the cache is refreshed.
+    assert client.post("/api/v1/recognitions", json={"image_base64": sample}).status_code == 201
     trained = client.post("/api/v1/spells/train", json={"name": "Lumos Maxima", "images": [sample]})
     assert trained.status_code == 201
     assert trained.json() == {"spell": "lumos_maxima", "added": 1}

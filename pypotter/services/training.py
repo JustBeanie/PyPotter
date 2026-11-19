@@ -1,5 +1,6 @@
 """Manage the local gesture-image corpus used by the spell recognizer."""
 
+import os
 import re
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -43,6 +44,16 @@ class TrainingCatalog:
         normalized = normalize_spell_name(name)
         if not 1 <= len(images) <= 5:
             raise ProcessingError("Choose between 1 and 5 gesture images at a time.")
+
+        root = os.path.realpath(self.training_dir)
+        requested = os.path.join(root, normalized)
+        resolved = os.path.realpath(requested)
+        if not resolved.startswith(os.path.join(root, "")):
+            raise ProcessingError("This spell's training directory is not available.")
+        if os.path.normcase(resolved) != os.path.normcase(requested):
+            raise ProcessingError("This spell's training directory is not available.")
+        directory = Path(resolved)
+
         cv2 = opencv()
         encoded_samples = []
         for image in images:
@@ -54,13 +65,10 @@ class TrainingCatalog:
                 raise ProcessingError("A gesture image could not be prepared for training.")
             encoded_samples.append(encoded.tobytes())
 
-        directory = self.training_dir / normalized
-        if directory.is_symlink():
-            raise ProcessingError("This spell's training directory is not available.")
-        self.training_dir.mkdir(parents=True, exist_ok=True)
         written: list[Path] = []
         try:
-            with TemporaryDirectory(prefix=".training-", dir=self.training_dir) as staging:
+            Path(root).mkdir(parents=True, exist_ok=True)
+            with TemporaryDirectory(prefix=".training-", dir=root) as staging:
                 staged = Path(staging) / "samples"
                 staged.mkdir()
                 for sample in encoded_samples:

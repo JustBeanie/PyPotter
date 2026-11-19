@@ -2,6 +2,7 @@
 
 import base64
 import binascii
+import os
 from datetime import UTC, datetime
 from functools import lru_cache
 from heapq import merge
@@ -17,6 +18,10 @@ CACHED_BATCHES = 16
 
 @lru_cache(maxsize=1)
 def opencv():
+    # NumPy can initialize a native thread pool at import time. Gesture matching
+    # is elementwise and gains nothing from that pool on a small device.
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
     import cv2
 
     cv2.setNumThreads(1)
@@ -100,9 +105,9 @@ class SpellProcessor:
         return self.classify(self.decode_image(image_base64))
 
     def _load_batches(self, include_mistakes: bool = False):
+        cv2 = opencv()
         import numpy as np
 
-        cv2 = opencv()
         names = self.spells()
         if include_mistakes:
             names.append("mistakes")
@@ -129,9 +134,10 @@ class SpellProcessor:
 
     def classify(self, decoded, *, include_mistakes: bool = False) -> Recognition:
         try:
+            cv2 = opencv()
             import numpy as np
 
-            query = opencv().resize(decoded, (SAMPLE_SIZE, SAMPLE_SIZE)).reshape(-1)
+            query = cv2.resize(decoded, (SAMPLE_SIZE, SAMPLE_SIZE)).reshape(-1)
             closest: list[tuple[int, str]] = []
             with self._lock:
                 cache = (
@@ -196,9 +202,9 @@ class SpellProcessor:
         if height * width > self.max_image_pixels:
             raise ProcessingError("The uploaded image has too many pixels.")
         try:
+            cv2 = opencv()
             import numpy as np
 
-            cv2 = opencv()
             encoded = np.frombuffer(image, dtype=np.uint8)
             try:
                 decoded = cv2.imdecode(encoded, cv2.IMREAD_GRAYSCALE)
