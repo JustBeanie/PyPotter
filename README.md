@@ -92,7 +92,7 @@ uv run pytest --cov
 cd frontend && npm install && npm run typecheck && npm test && npm run build
 ```
 
-GitHub Actions checks Python 3.12–3.14, frontend typechecking/build/tests, OpenAPI drift, package build, and a Docker smoke workflow. Pull requests need no secrets. CI uses least-privilege permissions and cancels superseded runs.
+GitHub Actions checks Python 3.12–3.15, frontend typechecking/build/tests, OpenAPI drift, package build, and a Docker smoke workflow. Pull requests need no secrets. CI uses least-privilege permissions and cancels superseded runs. After all checks pass on a push to `master`, CI publishes `ghcr.io/justbeanie/pypotter:latest` and a `sha-<commit>` tag.
 
 ## Architecture and limitations
 
