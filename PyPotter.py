@@ -7,14 +7,20 @@
 # THE SOFTWARE.
 
 import argparse
+import base64
 import logging
 import os
 import time
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from math import dist
 from pathlib import Path
+from urllib.parse import urlsplit
+
+import requests
 
 from HassApi import HassApi
+from pypotter.config import get_settings
 from pypotter.services.processor import SAMPLE_SIZE, ProcessingError, SpellProcessor, opencv
 
 logger = logging.getLogger("pypotter.camera")
@@ -88,26 +94,75 @@ def render_path(cv2, path, frame_shape):
     return image
 
 
+
+def submit_gesture(url, token, encoded):
+    try:
+        response = requests.post(
+            f"{url}/api/v1/camera/recognitions",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"image_base64": base64.b64encode(encoded).decode("ascii")},
+            timeout=(3, 15),
+            allow_redirects=False,
+        )
+        if response.status_code not in {201, 204}:
+            logger.warning("PyPotter declined the camera gesture (HTTP %s)", response.status_code)
+    except requests.RequestException:
+        logger.warning("PyPotter could not confirm receipt of the camera gesture")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Recognize wand gestures from an IR camera")
     parser.add_argument("source")
-    parser.add_argument("home_assistant_url")
-    parser.add_argument("api_token")
+    parser.add_argument("home_assistant_url", nargs="?")
+    parser.add_argument("api_token", nargs="?")
+    parser.add_argument("--pypotter-url", help="Send completed gestures to the PyPotter API")
+    parser.add_argument("--preview", action="store_true", help="Show camera windows in API mode")
+    parser.add_argument("--no-background", action="store_true", help="Skip background subtraction")
     parser.add_argument("remove_background", nargs="?", default="True")
     parser.add_argument("show_windows", nargs="?", default="True")
     parser.add_argument("training", nargs="?", default="False")
     parser.add_argument("debug_fps", nargs="?", default="False")
     args = parser.parse_args(argv)
+    if args.pypotter_url:
+        if args.home_assistant_url or args.api_token:
+            parser.error("--pypotter-url uses PYPOTTER_API_TOKEN instead of legacy arguments")
+        token = get_settings().api_token
+        url = args.pypotter_url.rstrip("/")
+        try:
+            parts = urlsplit(url)
+            valid = (
+                parts.hostname
+                and parts.username is None
+                and parts.password is None
+                and not parts.query
+                and not parts.fragment
+                and (
+                    parts.scheme == "https"
+                    or (
+                        parts.scheme == "http"
+                        and parts.hostname in {"localhost", "127.0.0.1", "::1"}
+                    )
+                )
+            )
+        except ValueError:
+            valid = False
+        if not valid or not token:
+            parser.error("Provide an HTTPS PyPotter URL (HTTP on loopback) and PYPOTTER_API_TOKEN")
+    elif not args.home_assistant_url or not args.api_token:
+        parser.error("Provide --pypotter-url or both legacy Home Assistant arguments")
 
     cv2 = opencv()
     logging.basicConfig(level=logging.INFO if args.debug_fps == "True" else logging.WARNING)
     source = int(args.source) if args.source.isdecimal() else args.source
     training_dir = Path(os.environ.get("PYPOTTER_TRAINING_DIR", Path(__file__).parent / "Training"))
-    processor = SpellProcessor(training_dir)
+    processor = SpellProcessor(training_dir) if not args.pypotter_url else None
     tracker = WandTracker()
-    hass = HassApi(args.home_assistant_url, args.api_token)
-    show_windows = args.show_windows == "True"
-    background = cv2.createBackgroundSubtractorMOG2() if args.remove_background == "True" else None
+    hass = HassApi(args.home_assistant_url, args.api_token) if processor else None
+    uploader = ThreadPoolExecutor(max_workers=1) if args.pypotter_url else None
+    upload = None
+    show_windows = args.preview if uploader else args.show_windows == "True"
+    remove_background = args.remove_background == "True" and not args.no_background
+    background = cv2.createBackgroundSubtractorMOG2() if remove_background else None
     capture = None
     frame_count = 0
     report_at = time.monotonic() + 1
@@ -146,18 +201,27 @@ def main(argv=None):
                 cv2.imshow("Threshold", threshold)
             if path:
                 gesture = render_path(cv2, path, threshold.shape)
-                try:
-                    result = processor.classify(gesture, include_mistakes=True)
-                    if args.training == "True":
-                        filename = f"char{time.time_ns()}{result.spell}.png"
+                if uploader:
+                    if upload and not upload.done():
+                        logger.warning("Camera gesture skipped while another cast is in progress")
+                    else:
                         sample = cv2.resize(gesture, (SAMPLE_SIZE, SAMPLE_SIZE))
-                        training_dir.mkdir(parents=True, exist_ok=True)
-                        if not cv2.imwrite(str(training_dir / filename), sample):
-                            logger.warning("Could not save camera training example")
-                    if result.spell != "mistakes":
-                        hass.TriggerAutomation(f"automation.wand_{result.spell}")
-                except (ProcessingError, OSError) as exc:
-                    logger.warning("Camera spell failed: %s", exc)
+                        ok, encoded = cv2.imencode(".png", sample)
+                        if ok:
+                            upload = uploader.submit(submit_gesture, url, token, encoded.tobytes())
+                else:
+                    try:
+                        result = processor.classify(gesture, include_mistakes=True)
+                        if args.training == "True":
+                            filename = f"char{time.time_ns()}{result.spell}.png"
+                            sample = cv2.resize(gesture, (SAMPLE_SIZE, SAMPLE_SIZE))
+                            training_dir.mkdir(parents=True, exist_ok=True)
+                            if not cv2.imwrite(str(training_dir / filename), sample):
+                                logger.warning("Could not save camera training example")
+                        if result.spell != "mistakes":
+                            hass.TriggerAutomation(f"automation.wand_{result.spell}")
+                    except (ProcessingError, OSError) as exc:
+                        logger.warning("Camera spell failed: %s", exc)
                 if show_windows:
                     cv2.imshow("Output", gesture)
             if args.debug_fps == "True":
@@ -173,6 +237,8 @@ def main(argv=None):
     finally:
         if capture is not None:
             capture.release()
+        if uploader:
+            uploader.shutdown()
         if show_windows:
             cv2.destroyAllWindows()
 

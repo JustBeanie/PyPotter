@@ -337,6 +337,7 @@ ASALocalRun/
 .pyproj
 
 # PyPotter modern development
+.env
 .venv/
 .uv/
 .uv-cache/

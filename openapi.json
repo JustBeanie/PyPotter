@@ -1,6 +1,21 @@
 {
   "components": {
     "schemas": {
+      "CameraRecognitionRequest": {
+        "properties": {
+          "image_base64": {
+            "maxLength": 6000000,
+            "minLength": 1,
+            "title": "Image Base64",
+            "type": "string"
+          }
+        },
+        "required": [
+          "image_base64"
+        ],
+        "title": "CameraRecognitionRequest",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -28,6 +43,41 @@
           "items"
         ],
         "title": "HistoryResponse",
+        "type": "object"
+      },
+      "InstanceResponse": {
+        "properties": {
+          "instance_id": {
+            "title": "Instance Id",
+            "type": "string"
+          },
+          "max_image_bytes": {
+            "title": "Max Image Bytes",
+            "type": "integer"
+          },
+          "max_request_body_bytes": {
+            "title": "Max Request Body Bytes",
+            "type": "integer"
+          },
+          "mqtt_topic_prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mqtt Topic Prefix"
+          }
+        },
+        "required": [
+          "instance_id",
+          "mqtt_topic_prefix",
+          "max_image_bytes",
+          "max_request_body_bytes"
+        ],
+        "title": "InstanceResponse",
         "type": "object"
       },
       "RecognitionRequest": {
@@ -189,10 +239,69 @@
   "info": {
     "description": "Local spell recognition and history API.",
     "title": "PyPotter API",
-    "version": "2.0.0"
+    "version": "2.1.0"
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/camera/recognitions": {
+      "post": {
+        "operationId": "recognize_camera_api_v1_camera_recognitions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CameraRecognitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecognitionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "204": {
+            "description": "The classifier rejected the gesture."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Recognize Camera"
+      }
+    },
+    "/api/v1/instance": {
+      "get": {
+        "operationId": "instance_api_v1_instance_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstanceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Instance"
+      }
+    },
     "/api/v1/recognitions": {
       "get": {
         "operationId": "history_api_v1_recognitions_get",

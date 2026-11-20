@@ -1,5 +1,6 @@
 import { FormEvent, PointerEvent, useEffect, useRef, useState } from "react";
 import { history, recognize, Recognition, spells, trainSpell } from "./api";
+import { ApiTokenRequired, setApiToken } from "./generated/client";
 
 export const trainedSpells = ["aguamenti", "alohomora", "incendio", "locomotor", "reparo", "revelio", "silencio", "specialis_revelio", "tarantallegra"];
 
@@ -68,6 +69,10 @@ function GesturePad({ onSample, disabled }: { onSample: (image: string) => void;
 }
 
 export function App() {
+  const [tokenRequired, setTokenRequired] = useState(false);
+  const [tokenInput, setTokenInput] = useState("");
+  const [tokenAttempt, setTokenAttempt] = useState(0);
+  const [tokenMessage, setTokenMessage] = useState("");
   const [availableSpells, setAvailableSpells] = useState(trainedSpells);
   const [spell, setSpell] = useState("");
   const [imageData, setImageData] = useState<string | undefined>();
@@ -84,9 +89,30 @@ export function App() {
   const [trainingMessage, setTrainingMessage] = useState("");
 
   useEffect(() => {
-    history().then(setRecent).catch(() => setMessage("History is unavailable right now."));
-    spells().then(setAvailableSpells).catch(() => setTrainingMessage("Spell list is unavailable right now."));
-  }, []);
+    let current = true;
+    Promise.allSettled([history(), spells()]).then(([historyResult, spellsResult]) => {
+      if (!current) return;
+      const denied = [historyResult, spellsResult].some(
+        (result) => result.status === "rejected" && result.reason instanceof ApiTokenRequired,
+      );
+      if (denied) {
+        setTokenRequired(true);
+        if (tokenAttempt > 0) setTokenMessage("Check your PyPotter API token and try again.");
+        return;
+      }
+      if (historyResult.status === "fulfilled") setRecent(historyResult.value);
+      else setMessage("History is unavailable right now.");
+      if (spellsResult.status === "fulfilled") setAvailableSpells(spellsResult.value);
+      else setTrainingMessage("Spell list is unavailable right now.");
+      if (historyResult.status === "fulfilled" || spellsResult.status === "fulfilled") {
+        setTokenRequired(false);
+        setTokenInput("");
+      } else if (tokenAttempt > 0) {
+        setTokenMessage("PyPotter is unavailable. Try again when it is online.");
+      }
+    });
+    return () => { current = false; };
+  }, [tokenAttempt]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -95,7 +121,7 @@ export function App() {
     try {
       const item = await recognize(spell ? { spell } : { image_base64: imageData });
       setResult(item); setRecent((items) => [item, ...items].slice(0, 20)); setStatus("idle");
-    } catch (error) { setStatus("error"); setMessage(error instanceof Error ? error.message : "Recognition failed."); }
+    } catch (error) { if (error instanceof ApiTokenRequired) setTokenRequired(true); setStatus("error"); setMessage(error instanceof Error ? error.message : "Recognition failed."); }
   }
 
   async function submitTraining(event: FormEvent) {
@@ -117,8 +143,26 @@ export function App() {
       setFiles([]); setDrawnSamples([]); setFileInputKey((key) => key + 1);
       setTrainingStatus("success");
       setTrainingMessage(`${saved.added} gesture ${saved.added === 1 ? "example" : "examples"} saved for ${label(saved.spell)}. You can add more or test recognition with an image above.`);
-    } catch (error) { setTrainingStatus("error"); setTrainingMessage(error instanceof Error ? error.message : "Training failed."); }
+    } catch (error) { if (error instanceof ApiTokenRequired) setTokenRequired(true); setTrainingStatus("error"); setTrainingMessage(error instanceof Error ? error.message : "Training failed."); }
   }
+
+  if (tokenRequired) return <main className="shell">
+    <section className="card" aria-labelledby="token-title">
+      <h1 id="token-title">Connect to PyPotter</h1>
+      <form onSubmit={(event) => {
+        event.preventDefault();
+        setTokenMessage("");
+        setApiToken(tokenInput.trim());
+        setTokenAttempt((attempt) => attempt + 1);
+      }}>
+        <label htmlFor="api-token">PyPotter API token</label>
+        <input id="api-token" type="password" autoComplete="off" required value={tokenInput}
+          onChange={(event) => setTokenInput(event.target.value)} />
+        <button type="submit">Connect</button>
+      </form>
+      {tokenMessage && <p className="error" role="alert">{tokenMessage}</p>}
+    </section>
+  </main>;
 
   return <main className="shell">
     <section className="hero"><p className="eyebrow">PY POTTER / LOCAL MAGIC LAB</p><h1>Cast a spell.<br /><em>Change the room.</em></h1><p className="lede">Choose a trained gesture to send it through PyPotter and keep a local history of every cast.</p></section>

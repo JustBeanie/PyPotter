@@ -167,13 +167,14 @@ class MQTTPublisher:
             self._connected = False
             self._started = False
 
-    def publish_recognition(self, recognition: Recognition) -> bool:
+    def publish_recognition(self, recognition: Recognition, *, recognition_id: int) -> bool:
         """Publish a recognition event; return false while the broker is unavailable."""
         if not self._connected:
             logger.warning("MQTT broker is not connected; recognition was not published")
             return False
         payload = json.dumps(
             {
+                "id": recognition_id,
                 "spell": recognition.spell,
                 "confidence": recognition.confidence,
                 "source": recognition.source,
