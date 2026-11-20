@@ -41,6 +41,8 @@ Training images are stored in `Training/<spell_name>/` by default. Set `PYPOTTER
 
 ## Connect Home Assistant
 
+The [PyPotter custom integration and dashboard cards](https://github.com/JustBeanie/pypotter-home-assistant) can run alongside the standalone web app. Set PYPOTTER_API_TOKEN for the shared API. The web GUI prompts for that token when configured. The integration repository covers installation and physical wand setup.
+
 ![A gesture becomes a Home Assistant automation through PyPotter and MQTT](docs/readme-flow.svg)
 
 When MQTT is enabled, PyPotter publishes spell events to `pypotter/events` and a retained discovery message to `homeassistant/device/pypotter/config`. Home Assistant discovers a PyPotter device with a **Last spell** sensor, a confidence sensor, and a trigger for each trained spell, including custom spells.

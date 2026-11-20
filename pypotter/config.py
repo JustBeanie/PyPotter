@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PYPOTTER_", env_file=".env", extra="ignore")
 
     environment: str = "development"
+    api_token: str = Field(default="", repr=False)
     data_dir: Path = Path("./data")
     database_url: str | None = None
     training_dir: Path = Path("./Training")

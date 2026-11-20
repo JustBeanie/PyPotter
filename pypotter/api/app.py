@@ -27,7 +27,7 @@ def create_app(settings: Settings | None = None, *, ui_enabled: bool = True) -> 
     bundled_training = Path(__file__).resolve().parents[2] / "Training"
     if bundled_training.is_dir() and bundled_training.resolve() != settings.training_dir.resolve():
         settings.training_dir.mkdir(parents=True, exist_ok=True)
-        for name in KNOWN_SPELLS:
+        for name in (*KNOWN_SPELLS, "mistakes"):
             source = bundled_training / name
             target = settings.training_dir / name
             if source.is_dir() and not target.exists():

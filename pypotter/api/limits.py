@@ -1,6 +1,7 @@
 """Bound request intake before JSON parsing or image decoding."""
 
 import logging
+import secrets
 import time
 from collections import OrderedDict, deque
 
@@ -11,7 +12,10 @@ from starlette.datastructures import Headers, MutableHeaders
 
 from pypotter.config import Settings
 
-SPELL_WRITES = {"/api/v1/recognitions", "/api/v1/spells/train"}
+CAMERA_PATH = "/api/v1/camera/recognitions"
+INSTANCE_PATH = "/api/v1/instance"
+SPELL_WRITES = {"/api/v1/recognitions", "/api/v1/spells/train", CAMERA_PATH}
+TOKEN_ONLY_PATHS = {CAMERA_PATH, INSTANCE_PATH}
 logger = logging.getLogger("pypotter.api")
 
 
@@ -71,7 +75,22 @@ class RequestLimits:
                     headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
             await send(message)
 
-        path = scope["path"]
+        path = scope["path"].rstrip("/")
+        if path.startswith("/api/v1/") and (self.settings.api_token or path in TOKEN_ONLY_PATHS):
+            token = self.settings.api_token
+            scheme, _, authorization = Headers(scope=scope).get("authorization", "").partition(" ")
+            if (
+                not token
+                or scheme.lower() != "bearer"
+                or not secrets.compare_digest(authorization.encode(), token.encode())
+            ):
+                response = JSONResponse(
+                    {"code": "invalid_token", "message": "Enter your PyPotter API token."},
+                    status_code=401,
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+                await response(scope, receive, send_headers)
+                return
         writes = scope["method"] in {"POST", "PUT", "PATCH"}
         heavy = writes and path.rstrip("/") in SPELL_WRITES
         maximum = self.settings.max_request_body_bytes

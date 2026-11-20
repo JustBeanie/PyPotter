@@ -85,7 +85,8 @@ def test_publisher_advertises_and_publishes_recognitions(monkeypatch):
     publisher._on_connect(fake_client, None, {}, 0, None)
     published_before_event = len(fake_client.published)
     result = publisher.publish_recognition(
-        Recognition("incendio", 0.75, "spell", datetime(2026, 1, 1, tzinfo=UTC))
+        Recognition("incendio", 0.75, "spell", datetime(2026, 1, 1, tzinfo=UTC)),
+        recognition_id=42,
     )
 
     assert result is True
@@ -94,6 +95,7 @@ def test_publisher_advertises_and_publishes_recognitions(monkeypatch):
     assert fake_client.published[1][0] == "homeassistant/device/pypotter/config"
     assert len(fake_client.published) == published_before_event + 1
     assert json.loads(fake_client.published[-1][1]) == {
+        "id": 42,
         "spell": "incendio",
         "confidence": 0.75,
         "source": "spell",
