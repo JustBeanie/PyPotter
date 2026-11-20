@@ -57,7 +57,7 @@ class WandTracker:
         if next_points is None or status is None:
             self.reset()
             return None
-        tracked = next_points[status.ravel() == 1]
+        tracked = next_points.reshape(-1, 2)[status.ravel() == 1]
         if not len(tracked):
             self.reset()
             return None

@@ -1,4 +1,5 @@
 import base64
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -71,3 +72,16 @@ def test_camera_uses_trained_spells_and_shares_history_and_mqtt(tmp_path):
     assert rejected.status_code == 204
     assert len(published) == 1
     assert client.get("/api/v1/recognitions").json() == {"items": [cast]}
+
+
+def test_wand_tracker_reads_optical_flow_points(monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parent.parent))
+    from PyPotter import WandTracker
+
+    tracker = WandTracker()
+    frame = np.zeros((64, 64), dtype=np.uint8)
+    cv2.rectangle(frame, (20, 20), (28, 28), 255, -1)
+    assert tracker.update(cv2, frame) is None
+    assert tracker.update(cv2, np.roll(frame, 3, axis=1)) is None
+    assert tracker.path
+    assert len(tracker.path[0]) == 2
